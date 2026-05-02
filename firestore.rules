@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Allow read/write access to the faculty collection
+    match /faculty/{document=**} {
+      allow read, write: if true;
+    }
+    
+    // Allow read/write access to the timetable collection
+    match /timetable/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write access to the students collection
+    match /students/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write access to the attendance collection
+    match /attendance/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write access to the departments collection
+    match /departments/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write access to the classes collection
+    match /classes/{document=**} {
+      allow read, write: if true;
+    }
+    
+    // (Optional) Catch-all for development mode
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
