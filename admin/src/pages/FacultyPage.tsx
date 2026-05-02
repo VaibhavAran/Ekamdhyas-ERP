@@ -7,7 +7,7 @@ import {
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, serverTimestamp } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { db, auth, firebaseConfig } from '../firebase';
+import { db, firebaseConfig } from '../firebase';
 
 // --- Types ---
 type Faculty = {

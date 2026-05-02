@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import {
   AiOutlineTeam,
   AiOutlineUser,
-  AiOutlineCheckCircle,
   AiOutlineBook,
   AiOutlineMonitor,
   AiOutlineAppstore,
