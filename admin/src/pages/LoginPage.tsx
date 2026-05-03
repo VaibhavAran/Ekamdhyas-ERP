@@ -4,9 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { writeAuthFlag } from '../utils/authStorage'
 import illustrationImage from '../assets/illustration.jpg'
 import { FiLock, FiUser, FiArrowRight, FiShield } from 'react-icons/fi'
-
-const PRESET_USERNAME = 'admin'
-const PRESET_PASSWORD = 'Admin@123'
+import { collection, query, where, getDocs } from 'firebase/firestore'
+import { db } from '../firebase'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -19,21 +18,41 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
     setIsLoading(true)
 
-    // Simulate network delay for a premium feel
-    setTimeout(() => {
-      if (username === PRESET_USERNAME && password === PRESET_PASSWORD) {
+    try {
+      // 1. Manual check against Firestore 'admins' collection
+      const q = query(
+        collection(db, 'admins'), 
+        where('username', '==', username.trim().toLowerCase())
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        setError('Invalid username or password.');
+        setIsLoading(false);
+        return;
+      }
+
+      const adminData = querySnapshot.docs[0].data();
+      
+      if (adminData.password === password) {
         writeAuthFlag(true)
+        localStorage.setItem('admin-username', adminData.username);
         navigate(redirectTo, { replace: true })
       } else {
-        setError('Invalid credentials. Please try again.')
-        setIsLoading(false)
+        setError('Invalid username or password.');
       }
-    }, 1200)
+    } catch (err: any) {
+      console.error("Login error:", err);
+      setError('System error. Please try again later.');
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (

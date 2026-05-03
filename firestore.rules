@@ -32,6 +32,16 @@ service cloud.firestore {
     match /classes/{document=**} {
       allow read, write: if true;
     }
+
+    // Allow read/write access to the subjects collection
+    match /subjects/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write access to the admins collection
+    match /admins/{document=**} {
+      allow read, write: if true;
+    }
     
     // (Optional) Catch-all for development mode
     match /{document=**} {

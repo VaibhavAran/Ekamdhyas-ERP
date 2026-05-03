@@ -19,6 +19,8 @@ interface Student {
   class_name: string;
   department_id: string;
   department_name: string;
+  batch_id?: string;
+  batch_name?: string;
   role: string;
   face_registered: boolean;
   status: 'active' | 'inactive';
@@ -36,6 +38,14 @@ interface ClassModel {
   department_id: string;
 }
 
+interface Batch {
+  id: string;
+  class_id: string;
+  batch_name: string;
+  roll_start: number;
+  roll_end: number;
+}
+
 interface AttendanceRecord {
   id: string;
   student_id: string;
@@ -49,8 +59,7 @@ interface AttendanceRecord {
 export function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [allClasses, setAllClasses] = useState<ClassModel[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [allClasses, setAllClasses] = useState<ClassModel[]>([]);    const [batches, setBatches] = useState<Batch[]>([]);  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterClass, setFilterClass] = useState('');
   
@@ -73,6 +82,8 @@ export function StudentsPage() {
     class_name: '',
     department_id: '',
     department_name: '',
+    batch_id: '',
+    batch_name: '',
     status: 'active' as 'active' | 'inactive'
   });
   
@@ -124,6 +135,15 @@ export function StudentsPage() {
           name: c.data().name,
           department_id: c.data().department_id
         })));
+
+        const bSnap = await getDocs(collection(db, 'batches'));
+        setBatches(bSnap.docs.map(b => ({
+          id: b.id,
+          class_id: b.data().class_id,
+          batch_name: b.data().batch_name,
+          roll_start: b.data().roll_start,
+          roll_end: b.data().roll_end
+        })));
       } catch (err) {
         console.error("Error fetching metadata", err);
       }
@@ -131,6 +151,29 @@ export function StudentsPage() {
     fetchMetadata();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Automatic Batch Calculation
+  useEffect(() => {
+    if (formData.class_id && formData.roll_no) {
+      const rollNum = parseInt(formData.roll_no.replace(/\D/g, ''), 10);
+      if (!isNaN(rollNum)) {
+        const matchingBatch = batches.find(b => 
+          b.class_id === formData.class_id && 
+          rollNum >= b.roll_start && 
+          rollNum <= b.roll_end
+        );
+        if (matchingBatch) {
+          if (formData.batch_id !== matchingBatch.id) {
+            setFormData(prev => ({ ...prev, batch_id: matchingBatch.id, batch_name: matchingBatch.batch_name }));
+          }
+        } else {
+          if (formData.batch_id !== '') {
+            setFormData(prev => ({ ...prev, batch_id: '', batch_name: '' }));
+          }
+        }
+      }
+    }
+  }, [formData.class_id, formData.roll_no, batches]);
 
   const fetchAttendance = async (studentId: string) => {
     setLoadingAttendance(true);
@@ -173,6 +216,8 @@ export function StudentsPage() {
         class_name: formData.class_name,
         department_id: formData.department_id,
         department_name: formData.department_name,
+        batch_id: formData.batch_id || null,
+        batch_name: formData.batch_name || null,
         role: 'student',
         face_registered: false,
         status: formData.status,
@@ -207,12 +252,14 @@ export function StudentsPage() {
         class_name: formData.class_name,
         department_id: formData.department_id,
         department_name: formData.department_name,
+        batch_id: formData.batch_id || null,
+        batch_name: formData.batch_name || null,
         status: formData.status
       });
       
       const updatedList = students.map((s) =>
         s.uid === selectedStudent.uid
-          ? { ...s, name: formData.name, roll_no: formData.roll_no, class_id: formData.class_id, class_name: formData.class_name, department_id: formData.department_id, department_name: formData.department_name, status: formData.status }
+          ? { ...s, name: formData.name, roll_no: formData.roll_no, class_id: formData.class_id, class_name: formData.class_name, department_id: formData.department_id, department_name: formData.department_name, batch_id: formData.batch_id, batch_name: formData.batch_name, status: formData.status }
           : s
       );
       setStudents(updatedList);
@@ -273,13 +320,15 @@ export function StudentsPage() {
       class_name: student.class_name,
       department_id: student.department_id,
       department_name: student.department_name,
+      batch_id: student.batch_id || '',
+      batch_name: student.batch_name || '',
       status: student.status
     });
     setIsEditModalOpen(true);
   };
 
   const openAdd = () => {
-    setFormData({ name: '', roll_no: '', email: '', class_id: '', class_name: '', department_id: '', department_name: '', status: 'active' });
+    setFormData({ name: '', roll_no: '', email: '', class_id: '', class_name: '', department_id: '', department_name: '', batch_id: '', batch_name: '', status: 'active' });
     setCreatedPassword(null);
     setIsAddModalOpen(true);
   };
@@ -542,13 +591,19 @@ export function StudentsPage() {
                         <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
                         <select required value={formData.class_id} onChange={e => {
                           const c = allClasses.find(cls => cls.id === e.target.value);
-                          setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '' });
+                          setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
                         }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
                           <option value="" disabled>Select Class</option>
                           {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                         </select>
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
+                        <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
+                          {formData.batch_name || 'No batch found for roll no'}
+                        </div>
                       </div>
                     </div>
 
@@ -619,13 +674,19 @@ export function StudentsPage() {
                         <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
                         <select required value={formData.class_id} onChange={e => {
                           const c = allClasses.find(cls => cls.id === e.target.value);
-                          setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '' });
+                          setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
                         }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
                           <option value="" disabled>Select Class</option>
                           {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                         </select>
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
+                        <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
+                          {formData.batch_name || 'No batch found for roll no'}
+                        </div>
                       </div>
                     </div>
                 <div>
@@ -682,6 +743,11 @@ export function StudentsPage() {
                        <span className="flex items-center gap-1.5 text-slate-500 font-medium bg-slate-100 px-3 py-1 rounded-md text-sm">
                           <FiBook /> {selectedStudent.class_name}
                        </span>
+                       {selectedStudent.batch_name && (
+                          <span className="flex items-center gap-1.5 text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-md text-sm border border-blue-100">
+                             <FiUsers /> {selectedStudent.batch_name}
+                          </span>
+                       )}
                        <span className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-bold uppercase tracking-wider ${
                           selectedStudent.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
                         }`}>

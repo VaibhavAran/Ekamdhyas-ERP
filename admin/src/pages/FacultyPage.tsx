@@ -27,10 +27,13 @@ type Department = {
 
 type TimetableEntry = {
   id: string;
-  class: string;
-  subject: string;
+  class_name: string;
+  subject_name: string;
   teacher_id: string;
-  time: string;
+  day: string;
+  start_time: string;
+  end_time: string;
+  batch_name?: string | null;
 };
 
 export function FacultyPage() {
@@ -603,19 +606,20 @@ export function FacultyPage() {
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2 font-semibold text-slate-900">
                               <FiUsers className="text-slate-400" />
-                              {slot.class}
+                              {slot.class_name}
+                              {slot.batch_name && <span className="text-blue-600 ml-1">({slot.batch_name})</span>}
                             </div>
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2 font-medium text-slate-700">
                               <FiBook className="text-blue-500" />
-                              {slot.subject}
+                              {slot.subject_name}
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="inline-flex items-center gap-2 font-mono font-medium text-slate-600 bg-slate-100 px-3 py-1 rounded-lg">
                               <FiClock className="text-slate-400" />
-                              {slot.time}
+                              {slot.day}, {slot.start_time} - {slot.end_time}
                             </div>
                           </td>
                         </tr>
