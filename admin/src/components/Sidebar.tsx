@@ -5,9 +5,7 @@ import {
   AiOutlineTeam,
   AiOutlineBook,
   AiOutlineCalendar,
-  AiOutlineMonitor,
   AiOutlineFileText,
-  AiOutlineBarChart,
   AiOutlineSetting,
   AiOutlineLogout,
   AiOutlineAppstore,
@@ -21,9 +19,7 @@ const navigationItems = [
   { label: 'Faculty', to: '/faculty', icon: AiOutlineTeam },
   { label: 'Subjects', to: '/subjects', icon: AiOutlineBook },
   { label: 'Timetable', to: '/timetable', icon: AiOutlineCalendar },
-  { label: 'Attendance Monitor', to: '/attendance-monitor', icon: AiOutlineMonitor },
   { label: 'Attendance Records', to: '/attendance-records', icon: AiOutlineFileText },
-  { label: 'Reports', to: '/reports', icon: AiOutlineBarChart },
   { label: 'Settings', to: '/settings', icon: AiOutlineSetting },
 ]
 

@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   FiFilter, FiDownload, FiUsers, FiBarChart2, FiAlertTriangle, 
-  FiSearch, FiCalendar, FiBook, FiLayout, FiCheckCircle, FiXCircle,
-  FiChevronDown, FiLoader
+  FiSearch, FiCalendar, FiLayout, FiCheckCircle, FiXCircle,
+  FiLoader
 } from 'react-icons/fi';
-import { collection, query, getDocs, where, orderBy } from 'firebase/firestore';
+import { collection, query, getDocs, where } from 'firebase/firestore';
 import { db } from '../firebase';
 
 interface Student {
@@ -42,17 +42,7 @@ interface Batch {
   batch_name: string;
 }
 
-interface AggregatedStudent {
-  id: string;
-  name: string;
-  rollNumber: string;
-  className: string;
-  totalClasses: number;
-  present: number;
-  absent: number;
-  percentage: number;
-  isDefaulter: boolean;
-}
+// AggregatedStudent type removed (not used in this admin page)
 
 export function AttendanceRecordsPage() {
   // --- METADATA STATE ---
@@ -71,6 +61,7 @@ export function AttendanceRecordsPage() {
 
   // --- DATA STATE ---
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [filteredSessionIds, setFilteredSessionIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showDefaultersOnly, setShowDefaultersOnly] = useState(false);
 
@@ -103,33 +94,57 @@ export function AttendanceRecordsPage() {
     const fetchAttendance = async () => {
       setIsLoading(true);
       try {
-        let q = query(collection(db, 'attendance'));
-        
-        // Add filters if they exist
+        // Step 1: Query attendance_sessions with applied filters
+        let sessQuery = query(collection(db, 'attendance_sessions'));
+
         if (filterClass) {
-          const className = classes.find(c => c.id === filterClass)?.name;
-          if (className) q = query(q, where('class', '==', className));
+          sessQuery = query(sessQuery, where('class_id', '==', filterClass));
+        }
+        if (filterSubject) {
+          sessQuery = query(sessQuery, where('subject_id', '==', filterSubject));
+        }
+        if (filterBatch) {
+          sessQuery = query(sessQuery, where('batch_id', '==', filterBatch));
+        }
+        if (startDate) {
+          sessQuery = query(sessQuery, where('date', '>=', startDate));
+        }
+        if (endDate) {
+          sessQuery = query(sessQuery, where('date', '<=', endDate));
         }
 
-        const snapshot = await getDocs(q);
-        const records = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord));
-        
-        // In-memory filtering for Subject, Batch, and Date Range
-        const filteredRecords = records.filter(record => {
-          const matchesSubject = filterSubject ? record.subject === filterSubject : true;
-          const matchesDate = (startDate && endDate) 
-            ? (record.date >= startDate && record.date <= endDate) 
-            : true;
-          
-          if (filterBatch) {
-            const student = students.find(s => s.uid === record.student_id);
-            return matchesSubject && matchesDate && student?.batch_id === filterBatch;
-          }
+        const sessSnap = await getDocs(sessQuery);
+        const sessions = sessSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const sessionIds = sessions.map((s: any) => s.id);
+        setFilteredSessionIds(sessionIds);
 
-          return matchesSubject && matchesDate;
+        // Step 2: Fetch attendance for these sessions. Use 'in' queries in chunks of 10.
+        let attendanceDocs: any[] = [];
+        if (sessionIds.length === 0) {
+          // No matching sessions => empty attendance
+          setAttendanceRecords([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const chunkSize = 10;
+        for (let i = 0; i < sessionIds.length; i += chunkSize) {
+          const chunk = sessionIds.slice(i, i + chunkSize);
+          const aQ = query(collection(db, 'attendance'), where('attendance_session_id', 'in', chunk));
+          const snap = await getDocs(aQ);
+          attendanceDocs = attendanceDocs.concat(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+
+        // Optionally apply batch filter to ensure student batch matches
+        const filtered = attendanceDocs.filter((rec: any) => {
+          if (filterBatch) {
+            const student = students.find(s => s.uid === rec.student_id);
+            if (!student || student.batch_id !== filterBatch) return false;
+          }
+          return true;
         });
 
-        setAttendanceRecords(filteredRecords);
+        setAttendanceRecords(filtered as AttendanceRecord[]);
       } catch (err) {
         console.error("Error fetching attendance:", err);
       } finally {
@@ -142,38 +157,25 @@ export function AttendanceRecordsPage() {
 
   // --- AGGREGATION LOGIC ---
   const aggregatedData = useMemo(() => {
-    const studentMap: Record<string, { present: number; total: number }> = {};
-    
     const targetStudents = filterClass 
       ? students.filter(s => s.class_id === filterClass)
       : students;
 
-    targetStudents.forEach(s => {
-      studentMap[s.uid] = { present: 0, total: 0 };
-    });
-
-    attendanceRecords.forEach(record => {
-      if (studentMap[record.student_id]) {
-        studentMap[record.student_id].total += 1;
-        if (record.status === 'present') {
-          studentMap[record.student_id].present += 1;
-        }
-      }
-    });
+    const totalSessions = filteredSessionIds.length;
 
     return targetStudents.map(s => {
-      const stats = studentMap[s.uid];
-      const percentage = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+      const presentCount = attendanceRecords.filter(r => r.student_id === s.uid && r.status === 'present').length;
+      const percentage = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
       return {
         id: s.uid,
         name: s.name,
         rollNumber: s.roll_no,
         className: s.class_name,
-        totalClasses: stats.total,
-        present: stats.present,
-        absent: stats.total - stats.present,
+        totalClasses: totalSessions,
+        present: presentCount,
+        absent: totalSessions - presentCount,
         percentage,
-        isDefaulter: percentage < DEFAULTER_THRESHOLD && stats.total > 0
+        isDefaulter: percentage < DEFAULTER_THRESHOLD && totalSessions > 0
       };
     }).filter(s => {
       const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -194,12 +196,12 @@ export function AttendanceRecordsPage() {
 
     return {
       totalStudents,
-      totalSessions: new Set(attendanceRecords.map(r => `${r.date}_${r.subject}`)).size,
+      totalSessions: filteredSessionIds.length,
       present: totalPresent,
       absent: totalAbsent,
       percentage: overallPercentage
     };
-  }, [attendanceRecords, students, filterClass]);
+  }, [attendanceRecords, students, filterClass, filteredSessionIds]);
 
   // --- EXPORT LOGIC ---
   const exportDefaulterList = () => {
@@ -278,7 +280,7 @@ export function AttendanceRecordsPage() {
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none cursor-pointer"
             >
               <option value="">All Subjects</option>
-              {subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
 
@@ -407,7 +409,7 @@ export function AttendanceRecordsPage() {
                       <td colSpan={7} className="px-8 py-20 text-center">
                         <div className="flex flex-col items-center gap-3">
                           <FiLayout size={48} className="text-slate-200" />
-                          <div className="text-slate-400 font-bold">No records found matching your criteria</div>
+                          <div className="text-slate-400 font-bold">No attendance found for selected filters</div>
                         </div>
                       </td>
                     </tr>

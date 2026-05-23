@@ -5,7 +5,7 @@ import {
   FiClock, FiBook, FiUsers, FiCopy, FiLoader,
   FiCheckCircle, FiXCircle
 } from 'react-icons/fi';
-import { collection, query, getDocs, doc, setDoc, updateDoc, deleteDoc, where, serverTimestamp } from 'firebase/firestore';
+import { collection, query, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, where, serverTimestamp } from 'firebase/firestore';
 import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -49,11 +49,20 @@ interface Batch {
 interface AttendanceRecord {
   id: string;
   student_id: string;
-  subject: string;
-  class: string;
+  attendance_session_id?: string;
+  subject?: string;
+  class?: string;
   date: string;
   status: 'present' | 'absent';
-  time: unknown;
+  time?: unknown;
+}
+
+interface AttendanceRow {
+  id: string;
+  date: string;
+  subject_name: string;
+  slot_time: string;
+  status: 'present' | 'absent';
 }
 
 export function StudentsPage() {
@@ -70,7 +79,7 @@ export function StudentsPage() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   
   // View Details extra state
-  const [studentAttendance, setStudentAttendance] = useState<AttendanceRecord[]>([]);
+  const [studentAttendance, setStudentAttendance] = useState<AttendanceRow[]>([]);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
 
   // Form State
@@ -180,16 +189,59 @@ export function StudentsPage() {
     try {
       const q = query(collection(db, 'attendance'), where('student_id', '==', studentId));
       const snapshot = await getDocs(q);
-      const records: AttendanceRecord[] = [];
-      snapshot.forEach(docSnap => {
-        records.push({ id: docSnap.id, ...docSnap.data() } as AttendanceRecord);
+      const raw: AttendanceRecord[] = [];
+      snapshot.forEach(docSnap => raw.push({ id: docSnap.id, ...docSnap.data() } as AttendanceRecord));
+
+      // Collect unique session IDs
+      const sessionIds = Array.from(new Set(raw.map(r => r.attendance_session_id).filter((x): x is string => !!x)));
+
+      const sessionsMap: Record<string, any> = {};
+      if (sessionIds.length > 0) {
+        const promises = sessionIds.map(id => getDoc(doc(db, 'attendance_sessions', id)));
+        const snaps = await Promise.all(promises);
+        snaps.forEach(s => {
+          if (s.exists()) sessionsMap[s.id] = s.data();
+        });
+      }
+
+      const merged: AttendanceRow[] = raw.map(r => {
+        const session = r.attendance_session_id ? sessionsMap[r.attendance_session_id] : null;
+        const subject_name = session?.subject_name || r.subject || 'Unknown Subject';
+        const start = session?.start_time;
+        const end = session?.end_time;
+        const slot_time = (start && end) ? formatSlotTime(start, end) : 'Time unavailable';
+        return {
+          id: r.id,
+          date: r.date,
+          subject_name,
+          slot_time,
+          status: r.status,
+        };
       });
-      setStudentAttendance(records);
+
+      setStudentAttendance(merged);
     } catch (error) {
       console.error("Error fetching attendance:", error);
     } finally {
       setLoadingAttendance(false);
     }
+  };
+
+  const formatSlotTime = (start: string, end: string) => {
+    // Accepts 'HH:MM' or 'HH:MM:SS' or already formatted times
+    const fmt = (t: string) => {
+      if (!t) return '';
+      if (/[ap]m/i.test(t)) return t;
+      const parts = t.split(':');
+      let hh = parseInt(parts[0], 10);
+      const mm = parts[1] || '00';
+      const ampm = hh >= 12 ? 'PM' : 'AM';
+      hh = hh % 12 || 12;
+      return `${hh}:${mm} ${ampm}`;
+    };
+    const s = fmt(start);
+    const e = fmt(end);
+    return s && e ? `${s} - ${e}` : 'Time unavailable';
   };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
@@ -820,25 +872,29 @@ export function StudentsPage() {
                            <tr>
                               <th className="px-6 py-4">Date</th>
                               <th className="px-6 py-4">Subject</th>
+                              <th className="px-6 py-4">Slot Time</th>
                               <th className="px-6 py-4 text-right">Status</th>
                            </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-100">
-                           {studentAttendance.slice().sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => (
-                              <tr key={record.id} className="hover:bg-slate-50 transition-colors">
-                                 <td className="px-6 py-4 font-medium text-slate-700">{record.date}</td>
-                                 <td className="px-6 py-4">
-                                     <span className="inline-flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded text-slate-600 font-medium">
-                                        <FiBook className="text-slate-400" /> {record.subject}
-                                     </span>
-                                 </td>
-                                 <td className="px-6 py-4 text-right">
-                                    <span className={`inline-flex px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${record.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                      {record.status}
-                                    </span>
-                                 </td>
-                              </tr>
-                           ))}
+                          {studentAttendance.slice().sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => (
+                            <tr key={record.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-6 py-4 font-medium text-slate-700">{record.date}</td>
+                              <td className="px-6 py-4">
+                                 <span className="inline-flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded text-slate-600 font-medium">
+                                   <FiBook className="text-slate-400" /> {record.subject_name}
+                                 </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="text-slate-500 text-sm">{record.slot_time}</div>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <span className={`inline-flex px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${record.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                  {record.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
                          </tbody>
                       </table>
                     </div>

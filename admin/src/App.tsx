@@ -2,13 +2,11 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { AttendanceMonitorPage } from './pages/AttendanceMonitorPage'
 import { AttendanceRecordsPage } from './pages/AttendanceRecordsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { FacultyPage } from './pages/FacultyPage'
 import { LoginPage } from './pages/LoginPage'
 import { NotificationsPage } from './pages/NotificationsPage'
-import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StudentsPage } from './pages/StudentsPage'
 import { SubjectsPage } from './pages/SubjectsPage'
@@ -33,9 +31,8 @@ function App() {
           <Route path="faculty" element={<FacultyPage />} />
           <Route path="subjects" element={<SubjectsPage />} />
           <Route path="timetable" element={<TimetablePage />} />
-          <Route path="attendance-monitor" element={<AttendanceMonitorPage />} />
           <Route path="attendance-records" element={<AttendanceRecordsPage />} />
-          <Route path="reports" element={<ReportsPage />} />
+          {/* Reports page removed */}
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

@@ -117,19 +117,26 @@ export function TimetablePage() {
 
   // --- Dynamic Time Slots ---
   const dynamicTimeSlots = useMemo(() => {
-    const slotsMap = new Map<string, { start: string; end: string }>();
+    const times = new Set<string>();
     timetable.forEach(t => {
-      const key = `${t.start_time}-${t.end_time}`;
-      if (!slotsMap.has(key)) {
-        slotsMap.set(key, { start: t.start_time, end: t.end_time });
-      }
+      if (t.start_time) times.add(t.start_time);
+      if (t.end_time) times.add(t.end_time);
     });
     
-    return Array.from(slotsMap.values()).sort((a, b) => {
-      if (a.start < b.start) return -1;
-      if (a.start > b.start) return 1;
-      return 0;
-    });
+    const sortedTimes = Array.from(times).sort();
+    const intervals: { start: string; end: string }[] = [];
+    
+    for (let i = 0; i < sortedTimes.length - 1; i++) {
+      const start = sortedTimes[i];
+      const end = sortedTimes[i + 1];
+      
+      const hasOverlap = timetable.some(t => t.start_time < end && t.end_time > start);
+      if (hasOverlap) {
+        intervals.push({ start, end });
+      }
+    }
+    
+    return intervals;
   }, [timetable]);
 
   const formatTo12Hour = (time24: string) => {
@@ -142,15 +149,19 @@ export function TimetablePage() {
   };
 
   // --- Handlers ---
-  const handleAddEntry = () => {
+  const handleAddEntry = (prefill?: { day: string; start_time: string; end_time: string } | React.MouseEvent) => {
     if (!selectedClassId) return;
     setEditingEntry(null);
+    
+    const hasPrefill = prefill && 'day' in prefill;
+    const prefillData = hasPrefill ? (prefill as { day: string; start_time: string; end_time: string }) : null;
+    
     setFormData({
       subject_id: '',
       teacher_id: '',
-      day: DAYS[0],
-      start_time: '',
-      end_time: '',
+      day: prefillData?.day || DAYS[0],
+      start_time: prefillData?.start_time || '',
+      end_time: prefillData?.end_time || '',
       is_break: false,
       batch_id: '',
       batch_name: ''
@@ -176,37 +187,70 @@ export function TimetablePage() {
   };
 
   const validateConflict = async (): Promise<string | null> => {
+    if (formData.start_time >= formData.end_time) {
+      return "Start time must be earlier than End time.";
+    }
+
     // Break has no conflicts for teachers or subjects
     if (formData.is_break) return null;
 
     if (!formData.teacher_id) return "Please select a teacher.";
     if (!formData.subject_id) return "Please select a subject.";
 
-    // Check if teacher is already assigned to ANOTHER class at this exactly time and day
+    // Check if teacher is already assigned to ANOTHER class during this overlapping time and day
     const qTeacher = query(collection(db, 'timetable'), 
       where('day', '==', formData.day),
-      where('start_time', '==', formData.start_time),
-      where('end_time', '==', formData.end_time),
       where('teacher_id', '==', formData.teacher_id)
     );
     const teacherSnap = await getDocs(qTeacher);
-    const conflicts = teacherSnap.docs.filter(d => d.id !== editingEntry?.id);
+    const teacherEntries = teacherSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimetableEntry));
+    const teacherConflicts = teacherEntries.filter(
+      t => 
+        t.id !== editingEntry?.id &&
+        t.start_time < formData.end_time &&
+        t.end_time > formData.start_time
+    );
     
-    if (conflicts.length > 0) {
-      const conflictClass = conflicts[0].data().class_name;
+    if (teacherConflicts.length > 0) {
+      const conflictClass = teacherConflicts[0].class_name;
       return `Teacher is already assigned to class '${conflictClass}' at this time.`;
     }
 
-    // Check if the current class already has an entry at this same time and day
-    const classConflicts = timetable.filter(
+    // Check if the current class already has an overlapping entry at this same time and day
+    const classOverlaps = timetable.filter(
       t => 
-        t.day === formData.day && 
-        t.start_time === formData.start_time && 
-        t.end_time === formData.end_time && 
-        t.id !== editingEntry?.id
+        t.id !== editingEntry?.id &&
+        t.day === formData.day &&
+        t.start_time < formData.end_time &&
+        t.end_time > formData.start_time
     );
-    if (classConflicts.length > 0) {
-      return `This class already has an entry at this time.`;
+
+    if (classOverlaps.length > 0) {
+      // 1. Check for break conflicts
+      if (formData.is_break) {
+        return "A break cannot be scheduled when other classes/practicals are scheduled at the same time.";
+      }
+      if (classOverlaps.some(t => t.is_break)) {
+        return "Cannot schedule during an existing break.";
+      }
+      
+      // 2. Check for full class session conflicts
+      const isNewFullClass = !formData.batch_id;
+      if (isNewFullClass) {
+        return `This class already has a schedule (${classOverlaps[0].subject_name}${classOverlaps[0].batch_name ? ` - ${classOverlaps[0].batch_name}` : ''}) during this time.`;
+      }
+      
+      const hasExistingFullClass = classOverlaps.some(t => !t.batch_id);
+      if (hasExistingFullClass) {
+        const fullClassEntry = classOverlaps.find(t => !t.batch_id);
+        return `Cannot schedule batch practical during full class session '${fullClassEntry?.subject_name}'.`;
+      }
+      
+      // 3. Check for same batch conflict
+      const sameBatchOverlap = classOverlaps.find(t => t.batch_id === formData.batch_id);
+      if (sameBatchOverlap) {
+        return `Batch '${formData.batch_name}' is already scheduled for '${sameBatchOverlap.subject_name}' during this time.`;
+      }
     }
 
     return null;
@@ -344,56 +388,119 @@ export function TimetablePage() {
                 </tr>
               </thead>
               <tbody>
-                {DAYS.map(day => (
-                  <tr key={day}>
-                    <td className="py-4 px-4 border-b border-r border-gray-200 bg-gray-50 font-medium text-gray-800 sticky left-0 z-10">
-                      {day}
-                    </td>
-                    {dynamicTimeSlots.map((slot, i) => {
-                      const entry = timetable.find(t => t.day === day && t.start_time === slot.start && t.end_time === slot.end);
-                      
-                      return (
-                        <td 
-                          key={i} 
-                          title={entry ? "Click to edit" : ""}
-                          onClick={() => entry ? handleCellClick(entry) : undefined}
-                          className={`
-                            border-b border-r border-gray-200 h-24 p-2 transition-colors relative group
-                            ${entry ? 'cursor-pointer hover:bg-gray-50/50' : 'bg-gray-50/20'}
-                            ${entry && entry.is_break ? 'bg-orange-50/80 hover:bg-orange-100' : ''}
-                            ${entry && !entry.is_break ? 'bg-green-50/30 hover:bg-green-100/50' : ''}
-                          `}
-                        >
-                          {entry && (
-                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400">
-                              <FiEdit2 size={14} />
+                {DAYS.map(day => {
+                  // Compute merged cells for this day
+                  const renderedCells = [];
+                  for (let i = 0; i < dynamicTimeSlots.length; ) {
+                    const slot = dynamicTimeSlots[i];
+                    const cellEntries = timetable.filter(
+                      t => t.day === day && t.start_time < slot.end && t.end_time > slot.start
+                    );
+                    
+                    let colSpan = 1;
+                    const singleEntry = cellEntries.length === 1 ? cellEntries[0] : null;
+                    
+                    if (singleEntry) {
+                      let j = i + 1;
+                      while (j < dynamicTimeSlots.length) {
+                        const nextSlot = dynamicTimeSlots[j];
+                        if (singleEntry.start_time < nextSlot.end && singleEntry.end_time > nextSlot.start) {
+                          const nextCellEntries = timetable.filter(
+                            t => t.day === day && t.start_time < nextSlot.end && t.end_time > nextSlot.start
+                          );
+                          if (nextCellEntries.length === 1 && nextCellEntries[0].id === singleEntry.id) {
+                            colSpan++;
+                            j++;
+                          } else {
+                            break;
+                          }
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    
+                    renderedCells.push({
+                      slot,
+                      entries: cellEntries,
+                      colSpan
+                    });
+                    
+                    i += colSpan;
+                  }
+
+                  return (
+                    <tr key={day}>
+                      <td className="py-4 px-4 border-b border-r border-gray-200 bg-gray-50 font-medium text-gray-800 sticky left-0 z-10">
+                        {day}
+                      </td>
+                      {renderedCells.map((cell, idx) => {
+                        const hasBreak = cell.entries.some(e => e.is_break);
+                        const hasLecture = cell.entries.some(e => !e.is_break);
+                        
+                        return (
+                          <td 
+                            key={idx} 
+                            colSpan={cell.colSpan}
+                            onClick={() => handleAddEntry({ day, start_time: cell.slot.start, end_time: cell.slot.end })}
+                            className={`
+                              border-b border-r border-gray-200 p-2 transition-colors relative group cursor-pointer
+                              ${cell.entries.length === 0 ? 'bg-gray-50/10 hover:bg-gray-100/30' : ''}
+                              ${hasBreak ? 'bg-orange-50/30 hover:bg-orange-100/20' : ''}
+                              ${hasLecture ? 'bg-blue-50/10 hover:bg-blue-100/10' : ''}
+                            `}
+                          >
+                            <div className="flex flex-col justify-center min-h-[80px] space-y-1.5 py-1">
+                              {cell.entries.length > 0 ? (
+                                cell.entries.map((entry) => (
+                                  <div 
+                                    key={entry.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCellClick(entry);
+                                    }}
+                                    className={`
+                                      p-2 rounded-lg border text-center transition-all duration-200 cursor-pointer shadow-sm relative group/entry
+                                      ${entry.is_break 
+                                        ? 'bg-orange-50 hover:bg-orange-100 border-orange-200' 
+                                        : 'bg-white hover:bg-blue-50 border-gray-200 hover:border-blue-300'
+                                      }
+                                    `}
+                                  >
+                                    <div className="absolute top-1.5 right-1.5 opacity-0 group-hover/entry:opacity-100 transition-opacity text-gray-400 hover:text-blue-600">
+                                      <FiEdit2 size={12} />
+                                    </div>
+                                    {entry.is_break ? (
+                                      <div className="flex flex-col items-center justify-center py-1">
+                                        <span className="font-bold text-orange-600 tracking-widest text-xs">BREAK</span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex flex-col items-center text-center">
+                                        <span className="font-semibold text-gray-800 text-xs leading-tight">
+                                          {entry.subject_name}
+                                          {entry.batch_name && (
+                                            <span className="text-blue-600 font-bold ml-1">({entry.batch_name})</span>
+                                          )}
+                                        </span>
+                                        <span className="text-[10px] text-gray-500 bg-gray-50 px-2 py-0.5 mt-1 rounded-full border border-gray-100 shadow-sm font-medium">
+                                          {entry.teacher_name}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="flex items-center justify-center h-full text-gray-300 text-sm">
+                                  -
+                                </div>
+                              )}
                             </div>
-                          )}
-                          
-                          {entry ? (
-                            entry.is_break ? (
-                              <div className="flex flex-col items-center justify-center h-full">
-                                <span className="font-bold text-orange-600 tracking-widest text-sm">BREAK</span>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col items-center justify-center h-full space-y-1">
-                                <span className="font-semibold text-gray-800 text-sm line-clamp-2 leading-snug">
-                                  {entry.subject_name}
-                                  {entry.batch_name && <span className="text-blue-600 ml-1">({entry.batch_name})</span>}
-                                </span>
-                                <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border border-gray-200 shadow-sm">{entry.teacher_name}</span>
-                              </div>
-                            )
-                          ) : (
-                            <div className="flex items-center justify-center h-full text-gray-300 text-sm">
-                              -
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
