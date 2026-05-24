@@ -1,0 +1,7 @@
+{
+  "name": "PESCE Attendance Portal",
+  "description": "Student attendance portal with login, dashboard, and Firebase data storage.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
