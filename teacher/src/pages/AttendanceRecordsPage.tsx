@@ -20,7 +20,7 @@ import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 
 type AttendanceStatus = 'present' | 'absent';
-type AttendanceMethod = 'image' | 'manual' | 'image-assisted';
+type AttendanceMethod = 'image' | 'manual' | 'image-assisted' | 'image_assisted';
 
 interface AttendanceSessionRecord {
 id: string;
@@ -503,7 +503,9 @@ options={uniqueSessionTimes.map(([value, label]) => ({ value, label }))}
 <div className="mt-3">
 <MethodBadge
 method={
-  selectedSession.attendance_method === 'image-assisted' || selectedSession.attendance_methods?.includes('image')
+  selectedSession.attendance_method === 'image_assisted' ||
+  selectedSession.attendance_method === 'image-assisted' ||
+  selectedSession.attendance_methods?.some((method) => method === 'image' || method === 'image_assisted' || method === 'image-assisted')
     ? 'image-assisted'
     : 'manual'
 }
@@ -605,9 +607,10 @@ className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 
 
 const MethodBadge = ({ method, methods }: { method?: AttendanceMethod; methods?: AttendanceMethod[] }) => {
 const attendanceMethods = methods ?? (method ? [method] : ['manual']);
-const combined = attendanceMethods.includes('image') && attendanceMethods.includes('manual');
+const normalizedMethods = attendanceMethods.map((item) => (item === 'image-assisted' ? 'image_assisted' : item));
+const hasImageAssisted = normalizedMethods.some((item) => item === 'image' || item === 'image_assisted');
 
-if (combined) {
+if (hasImageAssisted) {
 return (
 <span className="inline-flex items-center gap-2 rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold text-fuchsia-100">
 Image Assisted
@@ -615,7 +618,7 @@ Image Assisted
 );
 }
 
-const single = method === 'image-assisted' ? 'image' : attendanceMethods[0] ?? 'manual';
+const single = normalizedMethods[0] ?? 'manual';
 return (
 <span
 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${

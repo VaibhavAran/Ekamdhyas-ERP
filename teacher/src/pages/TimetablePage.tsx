@@ -97,7 +97,9 @@ if (!uid) return;
 const fetchTimetable = async () => {
 setLoading(true);
 try {
-const scheduleData = await fetchTeacherSchedule(db, uid);
+const scheduleData = await fetchTeacherSchedule(db, uid, undefined, {
+  includeAllTimetableDays: true,
+});
 const entries = scheduleData.scheduleEntries as TimetableEntry[];
 
 // Also fetch break entries for all classes this teacher has lectures in

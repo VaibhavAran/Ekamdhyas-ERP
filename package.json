@@ -1,0 +1,11 @@
+{
+  "name": "image-based-attendance-system-erp",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix backend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:teacher": "npm --prefix teacher run build",
+    "build:admin": "npm --prefix admin run build"
+  }
+}

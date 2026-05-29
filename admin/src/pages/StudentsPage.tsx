@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  FiPlus, FiSearch, FiEdit2, FiTrash2, FiEye, 
+  FiPlus, FiSearch, FiEdit2, FiTrash2, FiEye, FiCamera,
   FiUser, FiMail, FiBriefcase, FiX, FiCheck, FiAlertCircle, 
   FiClock, FiBook, FiUsers, FiCopy, FiLoader,
-  FiCheckCircle, FiXCircle
+  FiCheckCircle
 } from 'react-icons/fi';
 import { collection, query, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, where, serverTimestamp } from 'firebase/firestore';
 import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { FaceRegistrationModal, type FaceRegistrationStudent } from '../components/FaceRegistrationModal';
+import { registerStudentFace, updateFaceRegistrationStatus } from '../utils/faceRegistration';
 
 interface Student {
   uid: string;
@@ -23,6 +25,10 @@ interface Student {
   batch_name?: string;
   role: string;
   face_registered: boolean;
+  face_folder_path: string;
+  face_registration_status: string;
+  face_image_count: number;
+  face_last_updated: unknown;
   status: 'active' | 'inactive';
   created_at: unknown;
 }
@@ -65,6 +71,82 @@ interface AttendanceRow {
   status: 'present' | 'absent';
 }
 
+type StudentInput = {
+  uid: string;
+  name?: string;
+  roll_no?: string;
+  email?: string;
+  class_id?: string;
+  class_name?: string;
+  department_id?: string;
+  department_name?: string;
+  batch_id?: string | null;
+  batch_name?: string | null;
+  role?: string;
+  face_registered?: boolean;
+  face_folder_path?: string;
+  face_registration_status?: string;
+  face_image_count?: number;
+  face_last_updated?: unknown;
+  status?: 'active' | 'inactive';
+  created_at?: unknown;
+};
+
+const normalizeStudent = (student: StudentInput): Student => ({
+  uid: student.uid,
+  name: student.name || '',
+  roll_no: student.roll_no || '',
+  email: student.email || '',
+  class_id: student.class_id || '',
+  class_name: student.class_name || '',
+  department_id: student.department_id || '',
+  department_name: student.department_name || '',
+  batch_id: student.batch_id || '',
+  batch_name: student.batch_name || '',
+  role: student.role || 'student',
+  face_registered: student.face_registered ?? false,
+  face_folder_path: student.face_folder_path || '',
+  face_registration_status: student.face_registration_status || 'pending',
+  face_image_count: student.face_image_count ?? 0,
+  face_last_updated: student.face_last_updated ?? null,
+  status: student.status || 'active',
+  created_at: student.created_at,
+});
+
+const getFaceBadgeMeta = (faceRegistered: boolean) =>
+  faceRegistered
+    ? {
+        label: 'Face Registered',
+        className: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+        dotClassName: 'bg-emerald-500',
+      }
+    : {
+        label: 'Face Not Registered',
+        className: 'bg-amber-100 text-amber-700 border-amber-200',
+        dotClassName: 'bg-amber-500',
+      };
+
+const formatFaceLastUpdated = (value: unknown) => {
+  if (!value) {
+    return 'Not Available';
+  }
+
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toDateString() === new Date().toDateString() ? 'Today' : parsed.toLocaleDateString();
+    }
+    return value;
+  }
+
+  if (typeof value === 'object' && value !== null && 'toDate' in value && typeof (value as { toDate?: () => Date }).toDate === 'function') {
+    const dateValue = (value as { toDate: () => Date }).toDate();
+    return dateValue.toDateString() === new Date().toDateString() ? 'Today' : dateValue.toLocaleDateString();
+  }
+
+  return 'Today';
+};
+
 export function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -77,6 +159,8 @@ export function StudentsPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [isFaceModalOpen, setIsFaceModalOpen] = useState(false);
+  const [faceModalStudent, setFaceModalStudent] = useState<Student | null>(null);
   
   // View Details extra state
   const [studentAttendance, setStudentAttendance] = useState<AttendanceRow[]>([]);
@@ -97,6 +181,7 @@ export function StudentsPage() {
   });
   
   const [createdPassword, setCreatedPassword] = useState<string | null>(null);
+  const [recentlyCreatedStudent, setRecentlyCreatedStudent] = useState<Student | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -118,7 +203,7 @@ export function StudentsPage() {
       const querySnapshot = await getDocs(q);
       const studentsData: Student[] = [];
       querySnapshot.forEach((docSnap) => {
-        studentsData.push({ uid: docSnap.id, ...docSnap.data() } as Student);
+        studentsData.push(normalizeStudent({ uid: docSnap.id, ...docSnap.data() }));
       });
       setStudents(studentsData);
     } catch (error) {
@@ -272,15 +357,20 @@ export function StudentsPage() {
         batch_name: formData.batch_name || null,
         role: 'student',
         face_registered: false,
+        face_folder_path: '',
+        face_registration_status: 'pending',
+        face_image_count: 0,
+        face_last_updated: null,
         status: formData.status,
         created_at: serverTimestamp()
       };
       
       await setDoc(doc(db, 'students', uid), studentData);
 
-      const newStudent: Student = { uid, ...studentData } as Student;
+      const newStudent: Student = normalizeStudent({ uid, ...studentData });
       setStudents([...students, newStudent]);
       
+      setRecentlyCreatedStudent(newStudent);
       setCreatedPassword(newPassword);
       showToast('Student account created successfully!', 'success');
     } catch (error: unknown) {
@@ -338,28 +428,51 @@ export function StudentsPage() {
     }
   };
 
-  const markFaceRegistered = async (uid: string) => {
-    if (!window.confirm("Mark as face registered?")) return;
-    try {
-      await updateDoc(doc(db, 'students', uid), {
-        face_registered: true
-      });
-      
-      setStudents(students.map(s => s.uid === uid ? { ...s, face_registered: true } : s));
-      
-      if (selectedStudent && selectedStudent.uid === uid) {
-        setSelectedStudent({ ...selectedStudent, face_registered: true });
-      }
-      showToast('Face status updated!', 'success');
-    } catch (err: any) {
-      showToast("Error updating face status", 'error');
-    }
-  };
-
   const openView = (student: Student) => {
     setSelectedStudent(student);
     fetchAttendance(student.uid);
     setIsViewModalOpen(true);
+  };
+
+  const openFaceRegistration = (student: Student) => {
+    setFaceModalStudent(student);
+    setIsFaceModalOpen(true);
+  };
+
+  const closeFaceRegistration = () => {
+    setIsFaceModalOpen(false);
+    setFaceModalStudent(null);
+  };
+
+  const handleFaceRegistrationSubmit = async (images: File[]) => {
+    if (!faceModalStudent) {
+      return;
+    }
+
+    const response = await registerStudentFace({
+      studentUid: faceModalStudent.uid,
+      images,
+    });
+
+    const folderPath = response.folderPath || `student_faces/${faceModalStudent.uid}/`;
+    const imageCount = response.imageCount || images.length;
+
+    await updateFaceRegistrationStatus(faceModalStudent.uid, folderPath, imageCount);
+
+    const updatedStudent: Student = {
+      ...faceModalStudent,
+      face_registered: true,
+      face_folder_path: folderPath,
+      face_registration_status: 'completed',
+      face_image_count: imageCount,
+      face_last_updated: new Date().toISOString(),
+    };
+
+    setStudents((previous) => previous.map((student) => (student.uid === updatedStudent.uid ? updatedStudent : student)));
+    setSelectedStudent((previous) => (previous?.uid === updatedStudent.uid ? updatedStudent : previous));
+    setFaceModalStudent(updatedStudent);
+    showToast('Face registration completed!', 'success');
+    closeFaceRegistration();
   };
 
   const openEdit = (student: Student) => {
@@ -382,6 +495,7 @@ export function StudentsPage() {
   const openAdd = () => {
     setFormData({ name: '', roll_no: '', email: '', class_id: '', class_name: '', department_id: '', department_name: '', batch_id: '', batch_name: '', status: 'active' });
     setCreatedPassword(null);
+    setRecentlyCreatedStudent(null);
     setIsAddModalOpen(true);
   };
 
@@ -497,12 +611,12 @@ export function StudentsPage() {
                       {s.face_registered ? (
                         <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200">
                           <FiCheckCircle className="text-emerald-500" />
-                          Registered
+                          Face Registered
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold text-red-700 bg-red-50 border border-red-200">
-                          <FiXCircle className="text-red-500" />
-                          Missing
+                        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200">
+                          <FiAlertCircle className="text-amber-500" />
+                          Face Not Registered
                         </span>
                       )}
                     </td>
@@ -520,6 +634,9 @@ export function StudentsPage() {
                     </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex items-center justify-end gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openFaceRegistration(s)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title={s.face_registered ? 'Re-register Face' : 'Register Face'}>
+                          <FiCamera className="text-lg" />
+                        </button>
                         <button onClick={() => openView(s)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="View Profile">
                           <FiEye className="text-lg" />
                         </button>
@@ -601,13 +718,46 @@ export function StudentsPage() {
                       </button>
                     </div>
                   </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-slate-900">Face Registration</div>
+                        <p className="mt-1 text-sm text-slate-500">Face registration required for AI attendance.</p>
+                      </div>
+                      <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${getFaceBadgeMeta(false).className}`}>
+                        <span className={`h-2 w-2 rounded-full ${getFaceBadgeMeta(false).dotClassName}`}></span>
+                        {getFaceBadgeMeta(false).label}
+                      </span>
+                    </div>
+                  </div>
                   
-                  <button onClick={() => {
-                    setIsAddModalOpen(false);
-                    setCreatedPassword(null);
-                  }} className="w-full rounded-xl bg-slate-900 px-4 py-4 text-sm font-bold text-white transition-colors hover:bg-slate-800">
-                    Done & Close
-                  </button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (recentlyCreatedStudent) {
+                          setIsAddModalOpen(false);
+                          setCreatedPassword(null);
+                          openFaceRegistration(recentlyCreatedStudent);
+                        }
+                      }}
+                      className="rounded-xl bg-blue-600 px-4 py-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!recentlyCreatedStudent}
+                    >
+                      Register Face Now
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsAddModalOpen(false);
+                        setCreatedPassword(null);
+                        setRecentlyCreatedStudent(null);
+                      }}
+                      className="rounded-xl bg-slate-900 px-4 py-4 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                    >
+                      Later
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <form onSubmit={handleAddSubmit} className="space-y-4">
@@ -659,6 +809,24 @@ export function StudentsPage() {
                       </div>
                     </div>
 
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700">Face Registration Status</label>
+                        <p className="mt-1 text-xs font-medium text-slate-500">Create the student first to enable face registration.</p>
+                      </div>
+                    </div>
+                    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold ${getFaceBadgeMeta(false).className}`}>
+                      <span className={`h-2 w-2 rounded-full ${getFaceBadgeMeta(false).dotClassName}`}></span>
+                      <span>{getFaceBadgeMeta(false).label}</span>
+                    </div>
+                    <div className="mt-4">
+                      <button type="button" disabled className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-bold text-slate-500 cursor-not-allowed">
+                        Register Face
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">Email Address</label>
                     <div className="relative">
@@ -678,6 +846,15 @@ export function StudentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {isFaceModalOpen && faceModalStudent && (
+        <FaceRegistrationModal
+          isOpen={isFaceModalOpen}
+          student={faceModalStudent as FaceRegistrationStudent}
+          onClose={closeFaceRegistration}
+          onSubmit={handleFaceRegistrationSubmit}
+        />
       )}
 
       {/* --- EDIT MODAL --- */}
@@ -741,6 +918,43 @@ export function StudentsPage() {
                         </div>
                       </div>
                     </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 mt-4">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700">Face Registration</label>
+                      <p className="mt-1 text-xs font-medium text-slate-500">Face registration required for AI attendance.</p>
+                    </div>
+                    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${getFaceBadgeMeta(selectedStudent.face_registered).className}`}>
+                      <span className={`h-2 w-2 rounded-full ${getFaceBadgeMeta(selectedStudent.face_registered).dotClassName}`}></span>
+                      {getFaceBadgeMeta(selectedStudent.face_registered).label}
+                    </span>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Registration Status</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{selectedStudent.face_registered ? 'Registered' : 'Not Registered'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Image Count</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{selectedStudent.face_image_count}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Last Updated</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{formatFaceLastUpdated(selectedStudent.face_last_updated)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Folder Path</div>
+                      <div className="mt-1 break-all text-sm font-semibold text-slate-900">{selectedStudent.face_folder_path || 'Not Available'}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button type="button" onClick={() => openFaceRegistration(selectedStudent)} className={`rounded-xl px-4 py-2 text-sm font-bold text-white ${selectedStudent.face_registered ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                      {selectedStudent.face_registered ? 'Re-register Face' : 'Register Face'}
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-slate-700">Status</label>
                   <div className="grid grid-cols-2 gap-3">
@@ -808,19 +1022,42 @@ export function StudentsPage() {
                         </span>
                     </div>
                  </div>
-                 <div>
-                    {selectedStudent.face_registered ? (
-                      <div className="flex flex-col items-center bg-emerald-50 border border-emerald-100 px-5 py-3 rounded-xl">
-                         <FiCheckCircle className="text-emerald-500 text-2xl mb-1" />
-                         <span className="text-emerald-700 font-bold text-sm uppercase">Face Registered</span>
-                      </div>
-                    ) : (
-                      <button onClick={() => markFaceRegistered(selectedStudent.uid)} className="flex flex-col items-center justify-center bg-slate-50 border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50 px-5 py-3 rounded-xl transition-all group cursor-pointer w-full">
-                         <FiPlus className="text-slate-400 group-hover:text-blue-500 text-xl mb-1" />
-                         <span className="text-slate-600 group-hover:text-blue-700 font-bold text-sm">Register Face Data</span>
-                      </button>
-                    )}
+                 <div className="flex flex-col items-center justify-center min-w-[190px] rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                    <FiCheckCircle className={`mb-1 text-2xl ${selectedStudent.face_registered ? 'text-emerald-500' : 'text-amber-500'}`} />
+                    <span className={`text-sm font-bold uppercase ${selectedStudent.face_registered ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {selectedStudent.face_registered ? 'Face Registered' : 'Face Not Registered'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openFaceRegistration(selectedStudent)}
+                      className={`mt-3 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${selectedStudent.face_registered ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-600 text-white hover:bg-amber-700'}`}
+                    >
+                      {selectedStudent.face_registered ? 'Re-register Face' : 'Register Face'}
+                    </button>
                  </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="mb-5 flex items-center gap-2 text-lg font-bold text-slate-900">
+                  <FiCheckCircle className="text-blue-500" /> Face Registration
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Registration Status</div>
+                    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-bold ${selectedStudent.face_registered ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                      <span className={`h-2 w-2 rounded-full ${selectedStudent.face_registered ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                      {selectedStudent.face_registered ? 'Registered' : 'Not Registered'}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Image Count</div>
+                    <div className="text-2xl font-black text-slate-900">{selectedStudent.face_image_count}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Last Updated</div>
+                    <div className="text-sm font-semibold text-slate-700">{formatFaceLastUpdated(selectedStudent.face_last_updated)}</div>
+                  </div>
+                </div>
               </div>
 
               {/* Attendance Dashboard */}

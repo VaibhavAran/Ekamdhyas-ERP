@@ -19,6 +19,9 @@ service cloud.firestore {
     }
 
     // Students
+    // Includes face registration metadata fields:
+    // face_registered, face_registration_status, face_image_count,
+    // face_folder_path, face_last_updated
     match /students/{document=**} {
       allow read, write: if signedIn();
     }

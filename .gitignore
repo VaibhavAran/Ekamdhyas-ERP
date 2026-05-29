@@ -4,6 +4,7 @@ firestore.rules
 # Environment files
 .env
 .env.*
+*firebase-adminsdk*.json
 
 # Node modules
 node_modules/

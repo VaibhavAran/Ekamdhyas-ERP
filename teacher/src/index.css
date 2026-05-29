@@ -23,3 +23,8 @@ body {
 #root {
   min-height: 100vh;
 }
+
+body.teacher-camera-open .teacher-layout-sidebar,
+body.teacher-camera-open .teacher-layout-mobilebar {
+  display: none;
+}

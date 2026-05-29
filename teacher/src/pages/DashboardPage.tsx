@@ -219,6 +219,11 @@ fetch();
 
 // ── Fetch notifications (admin → all teachers) ──────────────────────────
 useEffect(() => {
+if (!uid) {
+setNotifications([]);
+setLoadingNotifications(false);
+return;
+}
 const fetch = async () => {
 setLoadingNotifications(true);
 try {
@@ -244,7 +249,7 @@ setLoadingNotifications(false);
 }
 };
 fetch();
-}, []);
+}, [uid]);
 
 // ── Computed stats ───────────────────────────────────────────────────────
 const stats = useMemo(() => [

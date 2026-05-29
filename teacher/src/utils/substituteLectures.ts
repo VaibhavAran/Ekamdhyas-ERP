@@ -165,37 +165,46 @@ export const isRequestAvailable = (
 export const fetchTeacherSchedule = async (
   db: Firestore,
   teacherId: string,
-  dateValue = todayISO()
+  dateValue = todayISO(),
+  options?: { includeAllTimetableDays?: boolean }
 ) => {
   const day = todayName(new Date(`${dateValue}T00:00:00`));
 
-  const [timetableSnapshot, overrideSnapshot] = await Promise.all([
-    getDocs(
-      query(
+  const timetableQuery = options?.includeAllTimetableDays
+    ? query(collection(db, 'timetable'), where('teacher_id', '==', teacherId))
+    : query(
         collection(db, 'timetable'),
         where('teacher_id', '==', teacherId),
         where('day', '==', day)
-      )
-    ),
-    getDocs(
+      );
+
+  const timetableSnapshot = await getDocs(timetableQuery);
+
+  let overrideSnapshot = null;
+  try {
+    overrideSnapshot = await getDocs(
       query(
         collection(db, 'lecture_overrides'),
         where('date', '==', dateValue),
         where('status', '==', 'active'),
         where('type', '==', 'teacher_substitute')
       )
-    ),
-  ]);
+    );
+  } catch (error) {
+    console.error('Error fetching lecture overrides:', error);
+  }
 
   const timetableEntries = timetableSnapshot.docs.map((item: QueryDocumentSnapshot<DocumentData, DocumentData>) => ({
     id: item.id,
     ...(item.data() as Omit<TimetableEntry, 'id'>),
   }));
 
-  const activeOverrides = overrideSnapshot.docs.map((item: QueryDocumentSnapshot<DocumentData, DocumentData>) => ({
-    id: item.id,
-    ...(item.data() as Omit<LectureOverride, 'id'>),
-  })) as LectureOverride[];
+  const activeOverrides = overrideSnapshot
+    ? overrideSnapshot.docs.map((item: QueryDocumentSnapshot<DocumentData, DocumentData>) => ({
+        id: item.id,
+        ...(item.data() as Omit<LectureOverride, 'id'>),
+      })) as LectureOverride[]
+    : [];
 
   return {
     timetableEntries,
