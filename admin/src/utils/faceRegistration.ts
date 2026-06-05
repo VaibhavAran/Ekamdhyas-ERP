@@ -1,5 +1,6 @@
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { getBackendUrl } from './apiConfig';
 
 export const FACE_MIN_IMAGES = 3;
 export const FACE_MAX_IMAGES = 10;
@@ -64,11 +65,17 @@ export async function registerStudentFace({ studentUid, images }: FaceRegistrati
     formData.append('images[]', image, image.name);
   });
 
-  const apiBaseUrl = import.meta.env.VITE_FACE_API_BASE_URL?.trim() || 'http://localhost:5000';
-  const response = await fetch(`${apiBaseUrl}/api/register-student-face`, {
-    method: 'POST',
-    body: formData,
-  });
+  const apiBaseUrl = getBackendUrl();
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/api/register-student-face`, {
+      method: 'POST',
+      body: formData,
+    });
+  } catch (netError) {
+    console.error('Network error connecting to backend:', netError);
+    throw new Error(`Cannot reach local attendance server at ${apiBaseUrl}. Please ensure the server is running on the laptop, and your device is connected to the same WiFi network.`);
+  }
 
   let payload: { success?: boolean; error?: string; message?: string; imageCount?: number; folderPath?: string } = {};
   try {

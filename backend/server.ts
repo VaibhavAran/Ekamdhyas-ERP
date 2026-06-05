@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cors from 'cors';
@@ -22,7 +22,7 @@ const studentFacesDir = path.join(__dirname, 'student_faces');
 const repoRoot = path.resolve(__dirname, '..');
 const aiWorkingDir = path.join(__dirname, 'ai');
 
-let aiProcess: ChildProcessWithoutNullStreams | null = null;
+let aiProcess: ChildProcess | null = null;
 let aiOwnedByBackend = false;
 let shuttingDown = false;
 

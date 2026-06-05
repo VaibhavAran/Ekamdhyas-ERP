@@ -1,0 +1,14 @@
+node_modules
+.venv
+venv
+.env
+.env.production
+.git
+.github
+*.log
+embeddings/*.pkl
+!embeddings/.gitkeep
+student_faces/*
+!student_faces/.gitkeep
+docker-compose*.yml
+Dockerfile

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Camera } from "@capacitor/camera";
+import { Capacitor } from "@capacitor/core";
 import {
   FiAlertCircle,
   FiCamera,
@@ -28,6 +30,7 @@ import {
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { fetchTeacherSchedule, formatTime, todayISO, toMinutes } from "../utils/substituteLectures";
+import { getBackendUrl } from "../utils/apiConfig";
 
 interface TimetableEntry {
   id: string;
@@ -231,9 +234,8 @@ const TakeAttendancePage = () => {
   };
 
   const getBackendBaseUrl = () => {
-    const raw = (import.meta.env.VITE_BACKEND_URL || "http://localhost:5000").trim();
-    const withoutTrailingSlash = raw.replace(/\/+$/, "");
-    return withoutTrailingSlash.endsWith("/api") ? withoutTrailingSlash.slice(0, -4) : withoutTrailingSlash;
+    const raw = getBackendUrl();
+    return raw.endsWith("/api") ? raw.slice(0, -4) : raw;
   };
 
   const applyTrackQualityConstraints = async (stream: MediaStream) => {
@@ -288,6 +290,12 @@ const TakeAttendancePage = () => {
     } catch (constraintError) {
       console.warn("Advanced camera constraints unsupported:", constraintError);
     }
+  };
+
+  const ensureCameraPermission = async () => {
+    if (!Capacitor.isNativePlatform()) return true;
+    const { camera } = await Camera.requestPermissions({ permissions: ["camera"] });
+    return camera === "granted" || camera === "limited";
   };
 
   const stopCameraStream = () => {
@@ -458,10 +466,28 @@ const TakeAttendancePage = () => {
     formData.append("captured_image", classroomImage);
 
     const backendBaseUrl = getBackendBaseUrl();
-    const apiResponse = await fetch(`${backendBaseUrl}/api/recognize-attendance`, {
-      method: "POST",
-      body: formData,
-    });
+    const recognitionUrl = `${backendBaseUrl}/api/recognize-attendance`;
+    console.log("=== RECOGNITION DEBUG ===");
+    console.log("Recognition URL:", recognitionUrl);
+    console.log("Backend base URL:", backendBaseUrl);
+    console.log("Raw getBackendUrl():", getBackendUrl());
+    console.log("VITE_BACKEND_URL env:", import.meta.env.VITE_BACKEND_URL);
+    console.log("FormData keys:", [...formData.keys()]);
+    console.log("class_id:", selectedSession.class_id);
+    console.log("session_id:", sessionKey);
+    console.log("=========================");
+    let apiResponse: Response;
+    try {
+      apiResponse = await fetch(recognitionUrl, {
+        method: "POST",
+        body: formData,
+      });
+      console.log("Recognition response status:", apiResponse.status);
+    } catch (netError) {
+      console.error("Network error connecting to backend:", netError);
+      console.error("Failed URL was:", recognitionUrl);
+      throw new Error(`Cannot reach local attendance server at ${backendBaseUrl}. Please ensure the server is running on the laptop, and your device is connected to the same WiFi network.`);
+    }
 
     let payload: { detail?: string; error?: string } & Partial<RecognitionResponse> = {};
     try {
@@ -488,6 +514,12 @@ const TakeAttendancePage = () => {
       setCaptureNotice("");
       setError("");
       console.log("Camera started");
+
+      const hasPermission = await ensureCameraPermission();
+      if (!hasPermission) {
+        setError("Camera permission denied. Please allow camera access.");
+        return;
+      }
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {

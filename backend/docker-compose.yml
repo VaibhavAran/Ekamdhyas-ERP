@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # Python AI Service
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
+    working_dir: /app/ai
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./student_faces:/app/student_faces
+      - ./embeddings:/app/embeddings
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Node.js Express Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm start
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./student_faces:/app/student_faces
+      - ./embeddings:/app/embeddings
+    env_file:
+      - .env
+    environment:
+      - AI_HOST=ai-service
+      - AI_PORT=8000
+      - AI_SERVICE_URL=http://ai-service:8000
+      - AI_PYTHON_PATH=python3
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
