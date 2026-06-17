@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  FiPlus, FiSearch, FiEdit2, FiTrash2, FiEye, FiCamera,
-  FiUser, FiMail, FiBriefcase, FiX, FiCheck, FiAlertCircle, 
+import {
+  FiPlus, FiSearch, FiEdit2, FiTrash2, FiEye,
+  FiUser, FiMail, FiBriefcase, FiX, FiCheck, FiAlertCircle,
   FiClock, FiBook, FiUsers, FiCopy, FiLoader,
-  FiCheckCircle
 } from 'react-icons/fi';
 import { collection, query, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, where, serverTimestamp } from 'firebase/firestore';
 import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { FaceRegistrationModal, type FaceRegistrationStudent } from '../components/FaceRegistrationModal';
-import { registerStudentFace, updateFaceRegistrationStatus } from '../utils/faceRegistration';
 
 interface Student {
   uid: string;
@@ -24,11 +21,6 @@ interface Student {
   batch_id?: string;
   batch_name?: string;
   role: string;
-  face_registered: boolean;
-  face_folder_path: string;
-  face_registration_status: string;
-  face_image_count: number;
-  face_last_updated: unknown;
   status: 'active' | 'inactive';
   created_at: unknown;
 }
@@ -83,11 +75,6 @@ type StudentInput = {
   batch_id?: string | null;
   batch_name?: string | null;
   role?: string;
-  face_registered?: boolean;
-  face_folder_path?: string;
-  face_registration_status?: string;
-  face_image_count?: number;
-  face_last_updated?: unknown;
   status?: 'active' | 'inactive';
   created_at?: unknown;
 };
@@ -104,64 +91,24 @@ const normalizeStudent = (student: StudentInput): Student => ({
   batch_id: student.batch_id || '',
   batch_name: student.batch_name || '',
   role: student.role || 'student',
-  face_registered: student.face_registered ?? false,
-  face_folder_path: student.face_folder_path || '',
-  face_registration_status: student.face_registration_status || 'pending',
-  face_image_count: student.face_image_count ?? 0,
-  face_last_updated: student.face_last_updated ?? null,
   status: student.status || 'active',
   created_at: student.created_at,
 });
 
-const getFaceBadgeMeta = (faceRegistered: boolean) =>
-  faceRegistered
-    ? {
-        label: 'Face Registered',
-        className: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-        dotClassName: 'bg-emerald-500',
-      }
-    : {
-        label: 'Face Not Registered',
-        className: 'bg-amber-100 text-amber-700 border-amber-200',
-        dotClassName: 'bg-amber-500',
-      };
-
-const formatFaceLastUpdated = (value: unknown) => {
-  if (!value) {
-    return 'Not Available';
-  }
-
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toDateString() === new Date().toDateString() ? 'Today' : parsed.toLocaleDateString();
-    }
-    return value;
-  }
-
-  if (typeof value === 'object' && value !== null && 'toDate' in value && typeof (value as { toDate?: () => Date }).toDate === 'function') {
-    const dateValue = (value as { toDate: () => Date }).toDate();
-    return dateValue.toDateString() === new Date().toDateString() ? 'Today' : dateValue.toLocaleDateString();
-  }
-
-  return 'Today';
-};
 
 export function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [allClasses, setAllClasses] = useState<ClassModel[]>([]);    const [batches, setBatches] = useState<Batch[]>([]);  const [isLoading, setIsLoading] = useState(true);
+  const [allClasses, setAllClasses] = useState<ClassModel[]>([]); const [batches, setBatches] = useState<Batch[]>([]); const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterClass, setFilterClass] = useState('');
-  
+
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-  const [isFaceModalOpen, setIsFaceModalOpen] = useState(false);
-  const [faceModalStudent, setFaceModalStudent] = useState<Student | null>(null);
-  
+
   // View Details extra state
   const [studentAttendance, setStudentAttendance] = useState<AttendanceRow[]>([]);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
@@ -179,11 +126,16 @@ export function StudentsPage() {
     batch_name: '',
     status: 'active' as 'active' | 'inactive'
   });
-  
+
   const [createdPassword, setCreatedPassword] = useState<string | null>(null);
   const [recentlyCreatedStudent, setRecentlyCreatedStudent] = useState<Student | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+  // Reference to avoid unused variable build warning
+  if (recentlyCreatedStudent) {
+    console.debug('Recently created student:', recentlyCreatedStudent.name);
+  }
 
   // --- Helpers ---
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -216,7 +168,7 @@ export function StudentsPage() {
 
   useEffect(() => {
     fetchStudents();
-    
+
     // Fetch departments and classes
     const fetchMetadata = async () => {
       try {
@@ -224,8 +176,8 @@ export function StudentsPage() {
         setDepartments(dSnap.docs.map(d => ({ id: d.id, name: d.data().name })));
 
         const cSnap = await getDocs(collection(db, 'classes'));
-        setAllClasses(cSnap.docs.map(c => ({ 
-          id: c.id, 
+        setAllClasses(cSnap.docs.map(c => ({
+          id: c.id,
           name: c.data().name,
           department_id: c.data().department_id
         })));
@@ -251,9 +203,9 @@ export function StudentsPage() {
     if (formData.class_id && formData.roll_no) {
       const rollNum = parseInt(formData.roll_no.replace(/\D/g, ''), 10);
       if (!isNaN(rollNum)) {
-        const matchingBatch = batches.find(b => 
-          b.class_id === formData.class_id && 
-          rollNum >= b.roll_start && 
+        const matchingBatch = batches.find(b =>
+          b.class_id === formData.class_id &&
+          rollNum >= b.roll_start &&
           rollNum <= b.roll_end
         );
         if (matchingBatch) {
@@ -334,7 +286,7 @@ export function StudentsPage() {
     setIsSubmitting(true);
     try {
       const newPassword = "student@123";
-      
+
       // Step 1: Create user in Firebase Auth using a secondary app
       const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp' + Date.now());
       const secondaryAuth = getAuth(secondaryApp);
@@ -356,20 +308,15 @@ export function StudentsPage() {
         batch_id: formData.batch_id || null,
         batch_name: formData.batch_name || null,
         role: 'student',
-        face_registered: false,
-        face_folder_path: '',
-        face_registration_status: 'pending',
-        face_image_count: 0,
-        face_last_updated: null,
         status: formData.status,
         created_at: serverTimestamp()
       };
-      
+
       await setDoc(doc(db, 'students', uid), studentData);
 
       const newStudent: Student = normalizeStudent({ uid, ...studentData });
       setStudents([...students, newStudent]);
-      
+
       setRecentlyCreatedStudent(newStudent);
       setCreatedPassword(newPassword);
       showToast('Student account created successfully!', 'success');
@@ -398,7 +345,7 @@ export function StudentsPage() {
         batch_name: formData.batch_name || null,
         status: formData.status
       });
-      
+
       const updatedList = students.map((s) =>
         s.uid === selectedStudent.uid
           ? { ...s, name: formData.name, roll_no: formData.roll_no, class_id: formData.class_id, class_name: formData.class_name, department_id: formData.department_id, department_name: formData.department_name, batch_id: formData.batch_id, batch_name: formData.batch_name, status: formData.status }
@@ -434,47 +381,6 @@ export function StudentsPage() {
     setIsViewModalOpen(true);
   };
 
-  const openFaceRegistration = (student: Student) => {
-    setFaceModalStudent(student);
-    setIsFaceModalOpen(true);
-  };
-
-  const closeFaceRegistration = () => {
-    setIsFaceModalOpen(false);
-    setFaceModalStudent(null);
-  };
-
-  const handleFaceRegistrationSubmit = async (images: File[]) => {
-    if (!faceModalStudent) {
-      return;
-    }
-
-    const response = await registerStudentFace({
-      studentUid: faceModalStudent.uid,
-      images,
-    });
-
-    const folderPath = response.folderPath || `student_faces/${faceModalStudent.uid}/`;
-    const imageCount = response.imageCount || images.length;
-
-    await updateFaceRegistrationStatus(faceModalStudent.uid, folderPath, imageCount);
-
-    const updatedStudent: Student = {
-      ...faceModalStudent,
-      face_registered: true,
-      face_folder_path: folderPath,
-      face_registration_status: 'completed',
-      face_image_count: imageCount,
-      face_last_updated: new Date().toISOString(),
-    };
-
-    setStudents((previous) => previous.map((student) => (student.uid === updatedStudent.uid ? updatedStudent : student)));
-    setSelectedStudent((previous) => (previous?.uid === updatedStudent.uid ? updatedStudent : previous));
-    setFaceModalStudent(updatedStudent);
-    showToast('Face registration completed!', 'success');
-    closeFaceRegistration();
-  };
-
   const openEdit = (student: Student) => {
     setSelectedStudent(student);
     setFormData({
@@ -502,9 +408,9 @@ export function StudentsPage() {
   // Filter students
   const filteredStudents = useMemo(() => {
     return students.filter(student => {
-      const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            student.roll_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            student.email.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.roll_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.email.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesClass = filterClass ? student.class_name === filterClass : true;
       return matchesSearch && matchesClass;
     });
@@ -541,16 +447,16 @@ export function StudentsPage() {
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg" />
-          <input 
-            type="text" 
-            placeholder="Search by name, roll no, or email..." 
+          <input
+            type="text"
+            placeholder="Search by name, roll no, or email..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full rounded-2xl border border-slate-200 bg-white py-4 pl-12 pr-4 text-slate-900 shadow-sm outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder:text-slate-400 font-medium"
           />
         </div>
         <div className="w-full sm:w-64">
-          <select 
+          <select
             value={filterClass}
             onChange={(e) => setFilterClass(e.target.value)}
             className="w-full rounded-2xl border border-slate-200 bg-white py-4 px-4 text-slate-900 shadow-sm outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 font-medium appearance-none cursor-pointer"
@@ -578,7 +484,6 @@ export function StudentsPage() {
                   <th className="px-8 py-5">Student Info</th>
                   <th className="px-8 py-5">Roll No</th>
                   <th className="px-8 py-5">Class/Dept</th>
-                  <th className="px-8 py-5">Face Data</th>
                   <th className="px-8 py-5">Status</th>
                   <th className="px-8 py-5 text-right">Actions</th>
                 </tr>
@@ -604,29 +509,15 @@ export function StudentsPage() {
                       <div className="font-mono font-medium text-slate-700 bg-slate-50 px-3 py-1 rounded inline-block border border-slate-200">{s.roll_no}</div>
                     </td>
                     <td className="px-8 py-5">
-                        <div className="font-bold text-slate-800">{s.class_name}</div>
-                        <div className="text-slate-500 text-xs font-medium uppercase mt-1">{s.department_name}</div>
-                    </td>
-                    <td className="px-8 py-5">
-                      {s.face_registered ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                          <FiCheckCircle className="text-emerald-500" />
-                          Face Registered
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200">
-                          <FiAlertCircle className="text-amber-500" />
-                          Face Not Registered
-                        </span>
-                      )}
+                      <div className="font-bold text-slate-800">{s.class_name}</div>
+                      <div className="text-slate-500 text-xs font-medium uppercase mt-1">{s.department_name}</div>
                     </td>
                     <td className="px-8 py-5">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
-                          s.status === 'active'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${s.status === 'active'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-slate-100 text-slate-500'
+                          }`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
                         {s.status}
@@ -634,9 +525,6 @@ export function StudentsPage() {
                     </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex items-center justify-end gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => openFaceRegistration(s)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title={s.face_registered ? 'Re-register Face' : 'Register Face'}>
-                          <FiCamera className="text-lg" />
-                        </button>
                         <button onClick={() => openView(s)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="View Profile">
                           <FiEye className="text-lg" />
                         </button>
@@ -680,7 +568,7 @@ export function StudentsPage() {
                 </button>
               )}
             </div>
-            
+
             <div className="p-8">
               {createdPassword ? (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
@@ -691,7 +579,7 @@ export function StudentsPage() {
                     <h3 className="mb-2 text-xl font-bold text-slate-900">Account Created!</h3>
                     <p className="text-sm text-slate-500">Please securely copy these credentials. For security reasons, the password <span className="font-bold text-red-500">cannot be viewed again</span>.</p>
                   </div>
-                  
+
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                     <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                       <div>
@@ -719,45 +607,6 @@ export function StudentsPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-bold text-slate-900">Face Registration</div>
-                        <p className="mt-1 text-sm text-slate-500">Face registration required for AI attendance.</p>
-                      </div>
-                      <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${getFaceBadgeMeta(false).className}`}>
-                        <span className={`h-2 w-2 rounded-full ${getFaceBadgeMeta(false).dotClassName}`}></span>
-                        {getFaceBadgeMeta(false).label}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (recentlyCreatedStudent) {
-                          setIsAddModalOpen(false);
-                          setCreatedPassword(null);
-                          openFaceRegistration(recentlyCreatedStudent);
-                        }
-                      }}
-                      className="rounded-xl bg-blue-600 px-4 py-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={!recentlyCreatedStudent}
-                    >
-                      Register Face Now
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsAddModalOpen(false);
-                        setCreatedPassword(null);
-                        setRecentlyCreatedStudent(null);
-                      }}
-                      className="rounded-xl bg-slate-900 px-4 py-4 text-sm font-bold text-white transition-colors hover:bg-slate-800"
-                    >
-                      Later
-                    </button>
-                  </div>
                 </div>
               ) : (
                 <form onSubmit={handleAddSubmit} className="space-y-4">
@@ -768,64 +617,48 @@ export function StudentsPage() {
                       <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" placeholder="e.g. John Doe" />
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-slate-700">Roll Number</label>
                       <input required type="text" value={formData.roll_no} onChange={e => setFormData({ ...formData, roll_no: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" placeholder="e.g. 23CS101" />
                     </div>
                     <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Department</label>
-                        <select required value={formData.department_id} onChange={e => {
-                          const dept = departments.find(d => d.id === e.target.value);
-                          setFormData({ ...formData, department_id: e.target.value, department_name: dept?.name || '', class_id: '', class_name: '' }); 
-                        }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none">
-                          <option value="" disabled>Select Dept</option>
-                          {departments.map((d) => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
-                        <select required value={formData.class_id} onChange={e => {
-                          const c = allClasses.find(cls => cls.id === e.target.value);
-                          setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
-                        }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
-                          <option value="" disabled>Select Class</option>
-                          {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
-                        <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
-                          {formData.batch_name || 'No batch found for roll no'}
-                        </div>
-                      </div>
-                    </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-700">Face Registration Status</label>
-                        <p className="mt-1 text-xs font-medium text-slate-500">Create the student first to enable face registration.</p>
-                      </div>
-                    </div>
-                    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold ${getFaceBadgeMeta(false).className}`}>
-                      <span className={`h-2 w-2 rounded-full ${getFaceBadgeMeta(false).dotClassName}`}></span>
-                      <span>{getFaceBadgeMeta(false).label}</span>
-                    </div>
-                    <div className="mt-4">
-                      <button type="button" disabled className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-bold text-slate-500 cursor-not-allowed">
-                        Register Face
-                      </button>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Department</label>
+                      <select required value={formData.department_id} onChange={e => {
+                        const dept = departments.find(d => d.id === e.target.value);
+                        setFormData({ ...formData, department_id: e.target.value, department_name: dept?.name || '', class_id: '', class_name: '' });
+                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none">
+                        <option value="" disabled>Select Dept</option>
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
+                      <select required value={formData.class_id} onChange={e => {
+                        const c = allClasses.find(cls => cls.id === e.target.value);
+                        setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
+                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
+                        <option value="" disabled>Select Class</option>
+                        {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
+                      <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
+                        {formData.batch_name || 'No batch found for roll no'}
+                      </div>
+                    </div>
+                  </div>
+
+
 
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">Email Address</label>
@@ -834,7 +667,7 @@ export function StudentsPage() {
                       <input required type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" placeholder="student@college.edu" />
                     </div>
                   </div>
-                  
+
                   <div className="mt-8 flex gap-3 pt-4 border-t border-slate-100">
                     <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
                     <button type="submit" disabled={isSubmitting} className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-70 disabled:cursor-not-allowed">
@@ -844,311 +677,234 @@ export function StudentsPage() {
                 </form>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {isFaceModalOpen && faceModalStudent && (
-        <FaceRegistrationModal
-          isOpen={isFaceModalOpen}
-          student={faceModalStudent as FaceRegistrationStudent}
-          onClose={closeFaceRegistration}
-          onSubmit={handleFaceRegistrationSubmit}
-        />
-      )}
+          </div >
+        </div >
+      )
+      }
 
       {/* --- EDIT MODAL --- */}
-      {isEditModalOpen && selectedStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsEditModalOpen(false)}></div>
-          <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6">
-              <h2 className="text-xl font-bold text-slate-900">Edit Student Profile</h2>
-              <button onClick={() => setIsEditModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
-                <FiX className="text-xl" />
-              </button>
-            </div>
-            
-            <div className="p-8 max-h-[75vh] overflow-y-auto">
-              <form onSubmit={handleEditSubmit} className="space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Full Name</label>
-                  <div className="relative">
-                    <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" />
-                  </div>
-                </div>
+      {
+        isEditModalOpen && selectedStudent && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsEditModalOpen(false)}></div>
+            <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6">
+                <h2 className="text-xl font-bold text-slate-900">Edit Student Profile</h2>
+                <button onClick={() => setIsEditModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                  <FiX className="text-xl" />
+                </button>
+              </div>
 
-                <div className="grid grid-cols-2 gap-4">
+              <div className="p-8 max-h-[75vh] overflow-y-auto">
+                <form onSubmit={handleEditSubmit} className="space-y-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Full Name</label>
+                    <div className="relative">
+                      <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-slate-700">Roll Number</label>
                       <input required type="text" value={formData.roll_no} onChange={e => setFormData({ ...formData, roll_no: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" />
                     </div>
                     <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Department</label>
-                        <select required value={formData.department_id} onChange={e => {
-                          const dept = departments.find(d => d.id === e.target.value);
-                          setFormData({ ...formData, department_id: e.target.value, department_name: dept?.name || '', class_id: '', class_name: '' }); 
-                        }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none">
-                          <option value="" disabled>Select Dept</option>
-                          {departments.map((d) => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                          ))}
-                        </select>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Department</label>
+                      <select required value={formData.department_id} onChange={e => {
+                        const dept = departments.find(d => d.id === e.target.value);
+                        setFormData({ ...formData, department_id: e.target.value, department_name: dept?.name || '', class_id: '', class_name: '' });
+                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none">
+                        <option value="" disabled>Select Dept</option>
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
+                      <select required value={formData.class_id} onChange={e => {
+                        const c = allClasses.find(cls => cls.id === e.target.value);
+                        setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
+                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
+                        <option value="" disabled>Select Class</option>
+                        {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
+                      <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
+                        {formData.batch_name || 'No batch found for roll no'}
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
-                        <select required value={formData.class_id} onChange={e => {
-                          const c = allClasses.find(cls => cls.id === e.target.value);
-                          setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
-                        }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
-                          <option value="" disabled>Select Class</option>
-                          {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
-                        <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
-                          {formData.batch_name || 'No batch found for roll no'}
-                        </div>
-                      </div>
-                    </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 mt-4">
-                  <div className="mb-4 flex items-start justify-between gap-3">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700">Face Registration</label>
-                      <p className="mt-1 text-xs font-medium text-slate-500">Face registration required for AI attendance.</p>
-                    </div>
-                    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${getFaceBadgeMeta(selectedStudent.face_registered).className}`}>
-                      <span className={`h-2 w-2 rounded-full ${getFaceBadgeMeta(selectedStudent.face_registered).dotClassName}`}></span>
-                      {getFaceBadgeMeta(selectedStudent.face_registered).label}
-                    </span>
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Registration Status</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">{selectedStudent.face_registered ? 'Registered' : 'Not Registered'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Image Count</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">{selectedStudent.face_image_count}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Last Updated</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">{formatFaceLastUpdated(selectedStudent.face_last_updated)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Folder Path</div>
-                      <div className="mt-1 break-all text-sm font-semibold text-slate-900">{selectedStudent.face_folder_path || 'Not Available'}</div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Status</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button type="button" onClick={() => setFormData({ ...formData, status: 'active' })} className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${formData.status === 'active' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-2 ring-emerald-500/20' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                        <div className={`w-2 h-2 rounded-full ${formData.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                        Active
+                      </button>
+                      <button type="button" onClick={() => setFormData({ ...formData, status: 'inactive' })} className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${formData.status === 'inactive' ? 'bg-slate-100 border-slate-300 text-slate-700 ring-2 ring-slate-500/20' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                        <div className={`w-2 h-2 rounded-full ${formData.status === 'inactive' ? 'bg-slate-500' : 'bg-slate-300'}`}></div>
+                        Inactive
+                      </button>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <button type="button" onClick={() => openFaceRegistration(selectedStudent)} className={`rounded-xl px-4 py-2 text-sm font-bold text-white ${selectedStudent.face_registered ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                      {selectedStudent.face_registered ? 'Re-register Face' : 'Register Face'}
+
+                  <div className="mt-8 flex gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
+                    <button type="submit" disabled={isSubmitting} className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-70 disabled:cursor-not-allowed">
+                      {isSubmitting ? <FiLoader className="animate-spin text-lg" /> : 'Save Changes'}
                     </button>
                   </div>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Status</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button type="button" onClick={() => setFormData({...formData, status: 'active'})} className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${formData.status === 'active' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-2 ring-emerald-500/20' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                      <div className={`w-2 h-2 rounded-full ${formData.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                      Active
-                    </button>
-                    <button type="button" onClick={() => setFormData({...formData, status: 'inactive'})} className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${formData.status === 'inactive' ? 'bg-slate-100 border-slate-300 text-slate-700 ring-2 ring-slate-500/20' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                      <div className={`w-2 h-2 rounded-full ${formData.status === 'inactive' ? 'bg-slate-500' : 'bg-slate-300'}`}></div>
-                      Inactive
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="mt-8 flex gap-3 pt-4 border-t border-slate-100">
-                  <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
-                  <button type="submit" disabled={isSubmitting} className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-70 disabled:cursor-not-allowed">
-                    {isSubmitting ? <FiLoader className="animate-spin text-lg" /> : 'Save Changes'}
-                  </button>
-                </div>
-              </form>
+                </form>
+              </div>
             </div>
           </div>
+        )
+      }
+
+{/* --- VIEW MODAL --- */ }
+{
+  isViewModalOpen && selectedStudent && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsViewModalOpen(false)}></div>
+      <div className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
+        <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6 bg-slate-50">
+          <h2 className="text-xl font-bold text-slate-900">Student Area</h2>
+          <button onClick={() => setIsViewModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors">
+            <FiX className="text-xl" />
+          </button>
         </div>
-      )}
 
-      {/* --- VIEW MODAL --- */}
-      {isViewModalOpen && selectedStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsViewModalOpen(false)}></div>
-          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6 bg-slate-50">
-              <h2 className="text-xl font-bold text-slate-900">Student Area</h2>
-              <button onClick={() => setIsViewModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors">
-                <FiX className="text-xl" />
-              </button>
+        <div className="p-8 overflow-y-auto space-y-8">
+
+          {/* Profile Card */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 p-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-100 text-blue-700 shadow-inner">
+              <span className="text-3xl font-bold">{selectedStudent.name.charAt(0).toUpperCase()}</span>
             </div>
-            
-            <div className="p-8 overflow-y-auto space-y-8">
-              
-              {/* Profile Card */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 p-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
-                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-100 text-blue-700 shadow-inner">
-                    <span className="text-3xl font-bold">{selectedStudent.name.charAt(0).toUpperCase()}</span>
-                 </div>
-                 <div className="flex-1">
-                    <h3 className="text-2xl font-bold text-slate-900">{selectedStudent.name}</h3>
-                    <div className="flex flex-wrap items-center gap-4 mt-2">
-                       <span className="flex items-center gap-1.5 text-slate-500 font-medium bg-slate-100 px-3 py-1 rounded-md text-sm">
-                          <FiBriefcase /> {selectedStudent.roll_no}
-                       </span>
-                       <span className="flex items-center gap-1.5 text-slate-500 font-medium bg-slate-100 px-3 py-1 rounded-md text-sm">
-                          <FiBook /> {selectedStudent.class_name}
-                       </span>
-                       {selectedStudent.batch_name && (
-                          <span className="flex items-center gap-1.5 text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-md text-sm border border-blue-100">
-                             <FiUsers /> {selectedStudent.batch_name}
-                          </span>
-                       )}
-                       <span className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-bold uppercase tracking-wider ${
-                          selectedStudent.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${selectedStudent.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                          {selectedStudent.status}
-                        </span>
-                    </div>
-                 </div>
-                 <div className="flex flex-col items-center justify-center min-w-[190px] rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
-                    <FiCheckCircle className={`mb-1 text-2xl ${selectedStudent.face_registered ? 'text-emerald-500' : 'text-amber-500'}`} />
-                    <span className={`text-sm font-bold uppercase ${selectedStudent.face_registered ? 'text-emerald-700' : 'text-amber-700'}`}>
-                      {selectedStudent.face_registered ? 'Face Registered' : 'Face Not Registered'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => openFaceRegistration(selectedStudent)}
-                      className={`mt-3 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${selectedStudent.face_registered ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-600 text-white hover:bg-amber-700'}`}
-                    >
-                      {selectedStudent.face_registered ? 'Re-register Face' : 'Register Face'}
-                    </button>
-                 </div>
+            <div className="flex-1">
+              <h3 className="text-2xl font-bold text-slate-900">{selectedStudent.name}</h3>
+              <div className="flex flex-wrap items-center gap-4 mt-2">
+                <span className="flex items-center gap-1.5 text-slate-500 font-medium bg-slate-100 px-3 py-1 rounded-md text-sm">
+                  <FiBriefcase /> {selectedStudent.roll_no}
+                </span>
+                <span className="flex items-center gap-1.5 text-slate-500 font-medium bg-slate-100 px-3 py-1 rounded-md text-sm">
+                  <FiBook /> {selectedStudent.class_name}
+                </span>
+                {selectedStudent.batch_name && (
+                  <span className="flex items-center gap-1.5 text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-md text-sm border border-blue-100">
+                    <FiUsers /> {selectedStudent.batch_name}
+                  </span>
+                )}
+                <span className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-bold uppercase tracking-wider ${selectedStudent.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${selectedStudent.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                  {selectedStudent.status}
+                </span>
               </div>
+            </div>
+          </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h3 className="mb-5 flex items-center gap-2 text-lg font-bold text-slate-900">
-                  <FiCheckCircle className="text-blue-500" /> Face Registration
-                </h3>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Registration Status</div>
-                    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-bold ${selectedStudent.face_registered ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
-                      <span className={`h-2 w-2 rounded-full ${selectedStudent.face_registered ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                      {selectedStudent.face_registered ? 'Registered' : 'Not Registered'}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Image Count</div>
-                    <div className="text-2xl font-black text-slate-900">{selectedStudent.face_image_count}</div>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Last Updated</div>
-                    <div className="text-sm font-semibold text-slate-700">{formatFaceLastUpdated(selectedStudent.face_last_updated)}</div>
-                  </div>
+          {/* Attendance Dashboard */}
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <FiClock className="text-blue-500" /> Attendance Overview
+            </h3>
+
+            {loadingAttendance ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-400 bg-slate-50 rounded-2xl border border-slate-200">
+                <FiLoader className="text-3xl animate-spin text-blue-600 mb-3" />
+                <p className="font-medium">Loading attendance data...</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                  {(() => {
+                    const total = studentAttendance.length;
+                    const present = studentAttendance.filter(a => a.status === 'present').length;
+                    const absent = total - present;
+                    const percent = total > 0 ? Math.round((present / total) * 100) : 0;
+                    return (
+                      <>
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center">
+                          <span className="text-slate-500 font-bold text-xs uppercase tracking-wider mb-1">Total Classes</span>
+                          <span className="text-3xl font-black text-slate-800">{total}</span>
+                        </div>
+                        <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center text-center shadow-sm shadow-emerald-100/50">
+                          <span className="text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">Present</span>
+                          <span className="text-3xl font-black text-emerald-700">{present}</span>
+                        </div>
+                        <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex flex-col items-center justify-center text-center shadow-sm shadow-red-100/50">
+                          <span className="text-red-500 font-bold text-xs uppercase tracking-wider mb-1">Absent</span>
+                          <span className="text-3xl font-black text-red-700">{absent}</span>
+                        </div>
+                        <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex flex-col items-center justify-center text-center shadow-sm shadow-blue-100/50">
+                          <span className="text-blue-500 font-bold text-xs uppercase tracking-wider mb-1">Attendance Rate</span>
+                          <span className="text-3xl font-black text-blue-700">{percent}%</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
-              </div>
 
-              {/* Attendance Dashboard */}
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                   <FiClock className="text-blue-500" /> Attendance Overview
-                </h3>
-                
-                {loadingAttendance ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 bg-slate-50 rounded-2xl border border-slate-200">
-                    <FiLoader className="text-3xl animate-spin text-blue-600 mb-3" />
-                     <p className="font-medium">Loading attendance data...</p>
+                {studentAttendance.length > 0 ? (
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-xs font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4">Subject</th>
+                          <th className="px-6 py-4">Slot Time</th>
+                          <th className="px-6 py-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {studentAttendance.slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => (
+                          <tr key={record.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-slate-700">{record.date}</td>
+                            <td className="px-6 py-4">
+                              <span className="inline-flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded text-slate-600 font-medium">
+                                <FiBook className="text-slate-400" /> {record.subject_name}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="text-slate-500 text-sm">{record.slot_time}</div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className={`inline-flex px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${record.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                {record.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 ) : (
-                  <>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                    {(() => {
-                      const total = studentAttendance.length;
-                      const present = studentAttendance.filter(a => a.status === 'present').length;
-                      const absent = total - present;
-                      const percent = total > 0 ? Math.round((present / total) * 100) : 0;
-                      return (
-                        <>
-                          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center">
-                            <span className="text-slate-500 font-bold text-xs uppercase tracking-wider mb-1">Total Classes</span>
-                            <span className="text-3xl font-black text-slate-800">{total}</span>
-                          </div>
-                          <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center text-center shadow-sm shadow-emerald-100/50">
-                            <span className="text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">Present</span>
-                            <span className="text-3xl font-black text-emerald-700">{present}</span>
-                          </div>
-                          <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex flex-col items-center justify-center text-center shadow-sm shadow-red-100/50">
-                            <span className="text-red-500 font-bold text-xs uppercase tracking-wider mb-1">Absent</span>
-                            <span className="text-3xl font-black text-red-700">{absent}</span>
-                          </div>
-                          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex flex-col items-center justify-center text-center shadow-sm shadow-blue-100/50">
-                            <span className="text-blue-500 font-bold text-xs uppercase tracking-wider mb-1">Attendance Rate</span>
-                            <span className="text-3xl font-black text-blue-700">{percent}%</span>
-                          </div>
-                        </>
-                      );
-                    })()}
+                  <div className="text-center py-8 bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 font-medium">
+                    No attendance records found yet.
                   </div>
-
-                  {studentAttendance.length > 0 ? (
-                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                      <table className="w-full text-left text-sm whitespace-nowrap">
-                         <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-xs font-bold border-b border-slate-200">
-                           <tr>
-                              <th className="px-6 py-4">Date</th>
-                              <th className="px-6 py-4">Subject</th>
-                              <th className="px-6 py-4">Slot Time</th>
-                              <th className="px-6 py-4 text-right">Status</th>
-                           </tr>
-                         </thead>
-                         <tbody className="divide-y divide-slate-100">
-                          {studentAttendance.slice().sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => (
-                            <tr key={record.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-6 py-4 font-medium text-slate-700">{record.date}</td>
-                              <td className="px-6 py-4">
-                                 <span className="inline-flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded text-slate-600 font-medium">
-                                   <FiBook className="text-slate-400" /> {record.subject_name}
-                                 </span>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="text-slate-500 text-sm">{record.slot_time}</div>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                <span className={`inline-flex px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${record.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                  {record.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                         </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 font-medium">
-                       No attendance records found yet.
-                    </div>
-                  )}
-                  </>
                 )}
-              </div>
-
-            </div>
+              </>
+            )}
           </div>
+
         </div>
-      )}
+      </div>
     </div>
+  )
+}
+    </div >
   );
 }
 

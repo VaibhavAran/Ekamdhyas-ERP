@@ -9,16 +9,18 @@ import {
   AiOutlineSetting,
   AiOutlineLogout,
   AiOutlineAppstore,
+  AiOutlineSchedule,
 } from 'react-icons/ai'
 import { writeAuthFlag } from '../utils/authStorage'
 
 const navigationItems = [
   { label: 'Dashboard', to: '/dashboard', icon: AiOutlineHome },
+  { label: 'Academic Year', to: '/academic-years', icon: AiOutlineCalendar },
   { label: 'Depts & Classes', to: '/departments-classes', icon: AiOutlineAppstore },
   { label: 'Students', to: '/students', icon: AiOutlineUser },
   { label: 'Faculty', to: '/faculty', icon: AiOutlineTeam },
   { label: 'Subjects', to: '/subjects', icon: AiOutlineBook },
-  { label: 'Timetable', to: '/timetable', icon: AiOutlineCalendar },
+  { label: 'Timetable', to: '/timetable', icon: AiOutlineSchedule },
   { label: 'Attendance Records', to: '/attendance-records', icon: AiOutlineFileText },
   { label: 'Settings', to: '/settings', icon: AiOutlineSetting },
 ]

@@ -32,9 +32,6 @@ import type {
   RecentAttendanceItem,
 } from '../types';
 import {
-  getAttendanceDocsForStudent,
-  getAttendanceSessionsForStudent,
-  getSubjects,
   getTimeTableForClass,
 } from '../lib/firebaseService';
 
@@ -177,29 +174,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendanceRecords }) => {
       }
 
       try {
-        const [sessions, attendanceDocs, timetable, subjects] = await Promise.all([
-          getAttendanceSessionsForStudent(classId, batchId),
-          getAttendanceDocsForStudent(user.id),
+        const [timetable] = await Promise.all([
           getTimeTableForClass(classId, batchId),
-          getSubjects(),
         ]);
 
-        const subjectMap = new Map(subjects.map((subject) => [subject.id, subject.name]));
-        const attendanceBySessionId = new Map<string, any>();
-        attendanceDocs.forEach((record: any) => {
-          const sessionId = record.attendance_session_id || record.session_id || record.sessionId;
-          if (sessionId) {
-            attendanceBySessionId.set(sessionId, record);
-          }
-        });
-
-        const sortedSessions = [...sessions].sort(
-          (left, right) => getMillis(right.date || right.completed_at || right.created_at) - getMillis(left.date || left.completed_at || left.created_at)
-        );
-
+        // Calculate progress from attendanceRecords prop
         const progressMap = new Map<string, DashboardSubjectProgress>();
-        sortedSessions.forEach((session) => {
-          const subjectName = session.subject_name || (session.subject_id ? subjectMap.get(session.subject_id) : '') || 'Unknown';
+        attendanceRecords.forEach((record) => {
+          const subjectName = record.subject_name || record.subject || 'Unknown';
           const existing = progressMap.get(subjectName) || {
             subject: subjectName,
             totalLectures: 0,
@@ -207,8 +189,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendanceRecords }) => {
           };
 
           existing.totalLectures += 1;
-          const attendanceRecord = attendanceBySessionId.get(session.id);
-          if (attendanceRecord && getAttendanceStatus(attendanceRecord.status) === 'Present') {
+          if (record.status?.toLowerCase() === 'present') {
             existing.presentCount += 1;
           }
 
@@ -219,41 +200,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendanceRecords }) => {
           (left, right) => right.totalLectures - left.totalLectures || left.subject.localeCompare(right.subject)
         );
 
-        const totalLectures = sortedSessions.length;
-        const presentCount = sortedSessions.filter((session) => {
-          const attendanceRecord = attendanceBySessionId.get(session.id);
-          return attendanceRecord ? getAttendanceStatus(attendanceRecord.status) === 'Present' : false;
-        }).length;
-        const percentage = totalLectures > 0 ? Math.round((presentCount / totalLectures) * 100) : 0;
+        // Sort records by date for recent and trend lists
+        const sortedRecords = [...attendanceRecords].sort(
+          (left, right) => getMillis(left.date) - getMillis(right.date)
+        );
 
-        const recentSessions = [...sortedSessions]
-          .sort((left, right) => getMillis(left.date || left.completed_at || left.created_at) - getMillis(right.date || right.completed_at || right.created_at))
-          .slice(-7);
-
-        const trend = recentSessions.map((session) => {
-          const attendanceRecord = attendanceBySessionId.get(session.id);
-          const status = attendanceRecord ? getAttendanceStatus(attendanceRecord.status) : 'Absent';
-          const subjectName = session.subject_name || (session.subject_id ? subjectMap.get(session.subject_id) : '') || 'Unknown';
-          const label = session.date || session.day || subjectName;
-
+        const trend = sortedRecords.slice(-7).map((record) => {
+          const status = record.status?.toLowerCase() === 'present' ? 'Present' : 'Absent';
+          const label = record.date;
           return {
-            name: session.day || label,
+            name: new Date(record.date).toLocaleDateString(undefined, { weekday: 'short' }) || record.date,
             attendance: status === 'Present' ? 100 : 0,
             status,
             label,
           } as DashboardTrendPoint;
         });
 
-        const recentList: RecentAttendanceItem[] = [...sortedSessions]
+        const recentList: RecentAttendanceItem[] = [...sortedRecords]
+          .reverse()
           .slice(0, 5)
-          .map((session) => {
-            const attendanceRecord = attendanceBySessionId.get(session.id);
-            const subjectName = session.subject_name || (session.subject_id ? subjectMap.get(session.subject_id) : '') || 'Unknown';
+          .map((record) => {
             return {
-              id: session.id,
-              subject: subjectName,
-              status: attendanceRecord ? getAttendanceStatus(attendanceRecord.status) : 'Absent',
-              timestamp: formatDateTime(attendanceRecord?.createdAt || attendanceRecord?.created_at || session.completed_at || session.created_at || session.date),
+              id: record.id,
+              subject: record.subject_name || record.subject || 'Unknown',
+              status: record.status?.toLowerCase() === 'present' ? 'Present' : 'Absent',
+              timestamp: formatDateTime(record.date),
             };
           });
 
@@ -263,27 +234,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendanceRecords }) => {
           const matchesBatch = !batchId || !entry.batch_id || entry.batch_id === batchId;
           return matchesDay && matchesBatch;
         });
-
-        if (!sortedSessions.length && attendanceRecords.length) {
-          const fallbackTrend = attendanceRecords.slice(-7).map((record) => ({
-            name: record.date,
-            attendance: getAttendanceStatus(record.status) === 'Present' ? 100 : 0,
-            status: getAttendanceStatus(record.status) as 'Present' | 'Absent',
-            label: record.subject || record.date,
-          }));
-
-          const fallbackRecent = attendanceRecords.slice(-5).reverse().map((record) => ({
-            id: record.id,
-            subject: record.subject || 'Attendance entry',
-            status: getAttendanceStatus(record.status) as 'Present' | 'Absent',
-            timestamp: record.date,
-          }));
-
-          if (mounted) {
-            setAttendanceTrend(fallbackTrend);
-            setRecentAttendance(fallbackRecent);
-          }
-        }
 
         if (mounted) {
           setSubjectProgress(progressList);

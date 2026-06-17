@@ -12,6 +12,7 @@ import { StudentsPage } from './pages/StudentsPage'
 import { SubjectsPage } from './pages/SubjectsPage'
 import { TimetablePage } from './pages/TimetablePage'
 import { DepartmentsClassesPage } from './pages/DepartmentsClassesPage'
+import { AcademicYearsPage } from './pages/AcademicYearsPage'
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
         >
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="departments-classes" element={<DepartmentsClassesPage />} />
+          <Route path="academic-years" element={<AcademicYearsPage />} />
           <Route path="students" element={<StudentsPage />} />
           <Route path="faculty" element={<FacultyPage />} />
           <Route path="subjects" element={<SubjectsPage />} />

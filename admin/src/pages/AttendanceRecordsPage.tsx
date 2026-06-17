@@ -155,27 +155,27 @@ export function AttendanceRecordsPage() {
     fetchAttendance();
   }, [filterClass, filterSubject, filterBatch, startDate, endDate, classes, students]);
 
-  // --- AGGREGATION LOGIC ---
   const aggregatedData = useMemo(() => {
     const targetStudents = filterClass 
       ? students.filter(s => s.class_id === filterClass)
       : students;
 
-    const totalSessions = filteredSessionIds.length;
-
     return targetStudents.map(s => {
-      const presentCount = attendanceRecords.filter(r => r.student_id === s.uid && r.status === 'present').length;
-      const percentage = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
+      const studentRecords = attendanceRecords.filter(r => r.student_id === s.uid);
+      const studentTotalSessions = studentRecords.length;
+      const presentCount = studentRecords.filter(r => r.status === 'present').length;
+      const absentCount = studentRecords.filter(r => r.status === 'absent').length;
+      const percentage = studentTotalSessions > 0 ? Math.round((presentCount / studentTotalSessions) * 100) : 0;
       return {
         id: s.uid,
         name: s.name,
         rollNumber: s.roll_no,
         className: s.class_name,
-        totalClasses: totalSessions,
+        totalClasses: studentTotalSessions,
         present: presentCount,
-        absent: totalSessions - presentCount,
+        absent: absentCount,
         percentage,
-        isDefaulter: percentage < DEFAULTER_THRESHOLD && totalSessions > 0
+        isDefaulter: percentage < DEFAULTER_THRESHOLD && studentTotalSessions > 0
       };
     }).filter(s => {
       const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -185,17 +185,27 @@ export function AttendanceRecordsPage() {
     });
   }, [attendanceRecords, students, filterClass, searchTerm, showDefaultersOnly]);
 
-  // --- SUMMARY STATS ---
   const summaryStats = useMemo(() => {
-    const totalStudents = filterClass ? students.filter(s => s.class_id === filterClass).length : students.length;
-    const totalPresent = attendanceRecords.filter(r => r.status === 'present').length;
-    const totalAbsent = attendanceRecords.length - totalPresent;
-    const overallPercentage = attendanceRecords.length > 0 
-      ? Math.round((totalPresent / attendanceRecords.length) * 100) 
+    const targetStudents = filterClass 
+      ? students.filter(s => s.class_id === filterClass)
+      : students;
+
+    let totalPresent = 0;
+    let totalAbsent = 0;
+
+    targetStudents.forEach(s => {
+      const studentRecords = attendanceRecords.filter(r => r.student_id === s.uid);
+      totalPresent += studentRecords.filter(r => r.status === 'present').length;
+      totalAbsent += studentRecords.filter(r => r.status === 'absent').length;
+    });
+
+    const totalActiveRecords = totalPresent + totalAbsent;
+    const overallPercentage = totalActiveRecords > 0 
+      ? Math.round((totalPresent / totalActiveRecords) * 100) 
       : 0;
 
     return {
-      totalStudents,
+      totalStudents: targetStudents.length,
       totalSessions: filteredSessionIds.length,
       present: totalPresent,
       absent: totalAbsent,

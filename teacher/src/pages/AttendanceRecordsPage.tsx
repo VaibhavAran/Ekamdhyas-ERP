@@ -20,7 +20,7 @@ import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 
 type AttendanceStatus = 'present' | 'absent';
-type AttendanceMethod = 'image' | 'manual' | 'image-assisted' | 'image_assisted';
+type AttendanceMethod = 'manual';
 
 interface AttendanceSessionRecord {
 id: string;
@@ -38,7 +38,6 @@ start_time: string;
 end_time: string;
 status?: string;
 attendance_method?: AttendanceMethod;
-attendance_methods?: AttendanceMethod[];
 duplicate_count?: number;
 completed_at?: unknown;
 updated_at?: unknown;
@@ -220,7 +219,7 @@ query(collection(db, 'attendance_sessions'), where('teacher_id', '==', teacherUi
 
 const grouped = new Map<
 string,
-AttendanceSessionRecord & { methodSet: Set<AttendanceMethod>; duplicate_count: number }
+AttendanceSessionRecord & { duplicate_count: number }
 >();
 
 snapshot.docs.forEach((item) => {
@@ -230,23 +229,16 @@ const existing = grouped.get(signature);
 
 if (existing) {
 existing.duplicate_count += 1;
-if (session.attendance_method) {
-existing.methodSet.add(session.attendance_method);
-}
 return;
 }
 
 grouped.set(signature, {
 ...session,
-methodSet: new Set<AttendanceMethod>(session.attendance_method ? [session.attendance_method] : []),
 duplicate_count: 1,
 });
 });
 
-const records = Array.from(grouped.values()).map((session) => ({
-...session,
-attendance_methods: Array.from(session.methodSet),
-}));
+const records = Array.from(grouped.values());
 
 records.sort((left, right) => {
 const leftDate = `${left.date ?? ''} ${left.start_time ?? ''}`;
@@ -501,15 +493,9 @@ options={uniqueSessionTimes.map(([value, label]) => ({ value, label }))}
 <h2 className="text-lg font-bold text-white">Attendance Details</h2>
 <p className="mt-1 text-sm text-slate-400">{selectedSessionLabel}</p>
 <div className="mt-3">
-<MethodBadge
-method={
-  selectedSession.attendance_method === 'image_assisted' ||
-  selectedSession.attendance_method === 'image-assisted' ||
-  selectedSession.attendance_methods?.some((method) => method === 'image' || method === 'image_assisted' || method === 'image-assisted')
-    ? 'image-assisted'
-    : 'manual'
-}
-/>
+<span className="inline-flex items-center gap-2 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-100">
+✍️ Manual Attendance
+</span>
 {selectedSession.type === 'teacher_substitute' ? (
 <span className="ml-2 inline-flex rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-violet-300">
 Substitute Lecture
@@ -604,33 +590,6 @@ className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 
 </select>
 </div>
 );
-
-const MethodBadge = ({ method, methods }: { method?: AttendanceMethod; methods?: AttendanceMethod[] }) => {
-const attendanceMethods = methods ?? (method ? [method] : ['manual']);
-const normalizedMethods = attendanceMethods.map((item) => (item === 'image-assisted' ? 'image_assisted' : item));
-const hasImageAssisted = normalizedMethods.some((item) => item === 'image' || item === 'image_assisted');
-
-if (hasImageAssisted) {
-return (
-<span className="inline-flex items-center gap-2 rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold text-fuchsia-100">
-Image Assisted
-</span>
-);
-}
-
-const single = normalizedMethods[0] ?? 'manual';
-return (
-<span
-className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
-single === 'image'
-? 'border-blue-500/20 bg-blue-500/10 text-blue-100'
-: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-100'
-}`}
->
-{single === 'image' ? '📷 Image Assisted' : '✍️ Manual Attendance'}
-</span>
-);
-};
 
 const StatusToggle = ({
 value,

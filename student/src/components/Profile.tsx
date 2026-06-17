@@ -3,17 +3,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   User as UserIcon, 
   Mail, 
-  Phone, 
   Hash, 
   Building2, 
   BookOpen, 
-  Calendar,
-  Award,
-  Camera,
-  Settings,
-  ShieldCheck,
-  Save,
-  X
 } from 'lucide-react';
 import type { User as UserType } from '../types';
 import { saveUser } from '../lib/firebaseService';
@@ -65,16 +57,13 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate }) => {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         <div className="xl:col-span-1 border border-gray-100 bg-white rounded-3xl p-8 flex flex-col items-center h-fit">
-          <div className="relative group cursor-pointer">
+          <div className="relative group">
             <div className="h-32 w-32 rounded-full bg-gradient-to-tr from-blue-600 to-blue-400 p-1">
               <div className="h-full w-full rounded-full bg-white p-1">
                 <div className="h-full w-full rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
                   <UserIcon className="h-16 w-16 text-gray-400" />
                 </div>
               </div>
-            </div>
-            <div className="absolute bottom-0 right-0 p-2 bg-blue-600 rounded-full border-4 border-white text-white group-hover:scale-110 transition-transform">
-              <Camera className="h-4 w-4" />
             </div>
           </div>
           
