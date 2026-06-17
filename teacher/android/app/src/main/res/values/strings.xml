@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Attendance ERP Teacher</string>
-    <string name="title_activity_main">Attendance ERP Teacher</string>
-    <string name="package_name">com.erp.teacher</string>
-    <string name="custom_url_scheme">com.erp.teacher</string>
-</resources>
