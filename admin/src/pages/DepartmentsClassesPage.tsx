@@ -231,7 +231,7 @@ export function DepartmentsClassesPage() {
 
   return (
     <div className="page-container p-6 w-full">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Departments & Classes</h1>
           <p className="text-gray-500 text-sm mt-1">Manage academic organization structure</p>
@@ -271,17 +271,18 @@ export function DepartmentsClassesPage() {
       {/* Render Department Tab */}
       {activeTab === 'departments' && (
         <>
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
             <h2 className="text-lg font-semibold text-gray-700">All Departments</h2>
             <button 
               onClick={() => { setDeptForm({ id: '', name: '' }); setShowDeptModal(true); }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center shadow-sm hover:bg-indigo-700"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center justify-center shadow-sm hover:bg-indigo-700 sm:w-auto"
             >
               <AiOutlinePlus className="mr-2" /> Add Department
             </button>
           </div>
 
           <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
+            <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -319,6 +320,7 @@ export function DepartmentsClassesPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </>
       )}
@@ -326,7 +328,7 @@ export function DepartmentsClassesPage() {
       {/* Render Classes Tab */}
       {activeTab === 'classes' && (
         <>
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
             <h2 className="text-lg font-semibold text-gray-700">All Classes</h2>
             <button 
               onClick={() => { 
@@ -337,13 +339,14 @@ export function DepartmentsClassesPage() {
                 setClassForm({ id: '', name: '', department_id: '' }); 
                 setShowClassModal(true); 
               }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center shadow-sm hover:bg-indigo-700"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center justify-center shadow-sm hover:bg-indigo-700 sm:w-auto"
             >
               <AiOutlinePlus className="mr-2" /> Add Class
             </button>
           </div>
 
           <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
+            <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -377,6 +380,7 @@ export function DepartmentsClassesPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </>
       )}
@@ -384,7 +388,7 @@ export function DepartmentsClassesPage() {
       {/* Render Batches Tab */}
       {activeTab === 'batches' && (
         <>
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
             <h2 className="text-lg font-semibold text-gray-700">All Batches</h2>
             <button 
               onClick={() => { 
@@ -395,7 +399,7 @@ export function DepartmentsClassesPage() {
                 setBatchForm({ id: '', class_id: '', batch_name: '', roll_start: '', roll_end: '' }); 
                 setShowBatchModal(true); 
               }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center shadow-sm hover:bg-indigo-700"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center justify-center shadow-sm hover:bg-indigo-700 sm:w-auto"
             >
               <AiOutlinePlus className="mr-2" /> Add Batch
             </button>
@@ -410,12 +414,13 @@ export function DepartmentsClassesPage() {
 
             {classes.filter(c => batches.some(b => b.class_id === c.id)).map(cls => (
               <div key={cls.id} className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
-                <div className="bg-slate-50 px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+                <div className="bg-slate-50 px-6 py-3 border-b border-gray-200 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                   <h3 className="font-bold text-indigo-900">{cls.name} <span className="text-xs text-slate-400 font-normal ml-2">({cls.department_name})</span></h3>
                   <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
                     {batches.filter(b => b.class_id === cls.id).length} Batches
                   </span>
                 </div>
+                <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-white">
                     <tr>
@@ -445,31 +450,33 @@ export function DepartmentsClassesPage() {
                         </td>
                       </tr>
                     ))}
-                  </tbody>
+                      </tbody>
                 </table>
+                </div>
               </div>
             ))}
 
-            {/* Floating Batches (without valid class mapping, if any) */}
+            {/* Floating Batches */}
             {batches.filter(b => !classes.some(c => c.id === b.class_id)).length > 0 && (
                <div className="bg-amber-50 rounded-lg shadow overflow-hidden border border-amber-200">
                   <div className="bg-amber-100 px-6 py-3 border-b border-amber-200">
                     <h3 className="font-bold text-amber-900">Unassigned Batches</h3>
                   </div>
-                  <table className="min-w-full divide-y divide-amber-200">
-                     {/* ... same table structure ... */}
-                     <tbody className="bg-white divide-y divide-amber-50">
-                        {batches.filter(b => !classes.some(c => c.id === b.class_id)).map(b => (
-                           <tr key={b.id}>
-                              <td className="px-6 py-3 text-sm font-semibold">{b.batch_name}</td>
-                              <td className="px-6 py-3 text-sm text-slate-500">{b.roll_start} - {b.roll_end}</td>
-                              <td className="px-6 py-3 text-right">
-                                 <button onClick={() => handleDeleteBatch(b.id)} className="text-red-600"><AiOutlineDelete size={18} /></button>
-                              </td>
-                           </tr>
-                        ))}
-                     </tbody>
-                  </table>
+                  <div className="overflow-x-auto">
+                   <table className="min-w-full divide-y divide-amber-200">
+                      <tbody className="bg-white divide-y divide-amber-50">
+                         {batches.filter(b => !classes.some(c => c.id === b.class_id)).map(b => (
+                            <tr key={b.id}>
+                               <td className="px-6 py-3 text-sm font-semibold">{b.batch_name}</td>
+                               <td className="px-6 py-3 text-sm text-slate-500">{b.roll_start} - {b.roll_end}</td>
+                               <td className="px-6 py-3 text-right">
+                                  <button onClick={() => handleDeleteBatch(b.id)} className="text-red-600"><AiOutlineDelete size={18} /></button>
+                               </td>
+                            </tr>
+                         ))}
+                      </tbody>
+                   </table>
+                  </div>
                </div>
             )}
           </div>

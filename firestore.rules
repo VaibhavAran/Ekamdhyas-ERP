@@ -73,6 +73,11 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
+    // Boards
+    match /boards/{document=**} {
+      allow read, write: if signedIn();
+    }
+
 
     /* ==========================
        SUBSTITUTE REQUESTS

@@ -245,20 +245,20 @@ export function AttendanceRecordsPage() {
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-12 space-y-8 animate-in fade-in duration-700">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-200 pb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-slate-200">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight flex items-center gap-4">
-            <div className="p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-200 text-white">
+          <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight flex items-center gap-3 sm:gap-4">
+            <div className="p-2.5 sm:p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-200 text-white">
               <FiBarChart2 />
             </div>
             Attendance Analytics
           </h1>
-          <p className="text-slate-500 mt-2 font-medium ml-16">Review records, track performance, and manage defaulters</p>
+          <p className="text-slate-500 mt-2 font-medium ml-0 sm:ml-16 text-sm">Review records, track performance, and manage defaulters</p>
         </div>
         
         <button 
           onClick={exportDefaulterList}
-          className="flex items-center gap-2 bg-white border-2 border-rose-100 text-rose-600 px-6 py-3 rounded-2xl font-bold shadow-sm hover:bg-rose-50 hover:border-rose-200 transition-all active:scale-95"
+          className="flex items-center justify-center gap-2 bg-white border-2 border-rose-100 text-rose-600 px-4 sm:px-6 py-3 rounded-2xl font-bold shadow-sm hover:bg-rose-50 hover:border-rose-200 transition-all active:scale-95 text-sm"
         >
           <FiDownload /> Export Defaulter List
         </button>
@@ -269,7 +269,7 @@ export function AttendanceRecordsPage() {
         <div className="flex items-center gap-2 text-slate-900 font-bold">
           <FiFilter className="text-indigo-600" /> Advanced Filters
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Class</label>
             <select 
@@ -342,7 +342,7 @@ export function AttendanceRecordsPage() {
       </div>
 
       {/* 2. Attendance Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
           { label: 'Total Students', value: summaryStats.totalStudents, icon: FiUsers, color: 'text-blue-600', bg: 'bg-blue-50' },
           { label: 'Total Sessions', value: summaryStats.totalSessions, icon: FiCalendar, color: 'text-indigo-600', bg: 'bg-indigo-50' },
@@ -368,13 +368,13 @@ export function AttendanceRecordsPage() {
           <div className="flex items-center gap-2 bg-white p-1 rounded-2xl border border-slate-200 w-fit">
             <button 
               onClick={() => setShowDefaultersOnly(false)}
-              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${!showDefaultersOnly ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-500 hover:bg-slate-50'}`}
+              className={`px-4 sm:px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${!showDefaultersOnly ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-500 hover:bg-slate-50'}`}
             >
               All Students
             </button>
             <button 
               onClick={() => setShowDefaultersOnly(true)}
-              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${showDefaultersOnly ? 'bg-rose-600 text-white shadow-lg shadow-rose-200' : 'text-slate-500 hover:bg-slate-50'}`}
+              className={`px-4 sm:px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 ${showDefaultersOnly ? 'bg-rose-600 text-white shadow-lg shadow-rose-200' : 'text-slate-500 hover:bg-slate-50'}`}
             >
               <FiAlertTriangle /> Defaulters
             </button>
@@ -475,20 +475,20 @@ export function AttendanceRecordsPage() {
 
       {/* 5. Defaulter Summary Indicator */}
       {showDefaultersOnly && aggregatedData.length > 0 && (
-        <div className="bg-rose-600 rounded-3xl p-8 text-white shadow-xl shadow-rose-200 animate-in slide-in-from-bottom-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
+        <div className="bg-rose-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-rose-200 animate-in slide-in-from-bottom-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 sm:gap-6">
               <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-md">
                 <FiAlertTriangle size={32} />
               </div>
               <div>
-                <h2 className="text-2xl font-black">Critical Defaulter List</h2>
-                <p className="text-rose-100 font-medium">Found {aggregatedData.length} students below the {DEFAULTER_THRESHOLD}% attendance threshold.</p>
+                <h2 className="text-xl sm:text-2xl font-black">Critical Defaulter List</h2>
+                <p className="text-rose-100 font-medium text-sm">Found {aggregatedData.length} students below the {DEFAULTER_THRESHOLD}% attendance threshold.</p>
               </div>
             </div>
             <button 
               onClick={exportDefaulterList}
-              className="bg-white text-rose-600 px-8 py-4 rounded-2xl font-black shadow-lg hover:scale-105 transition-transform"
+              className="bg-white text-rose-600 px-6 sm:px-8 py-3 sm:py-4 rounded-2xl font-black shadow-lg hover:scale-105 transition-transform text-sm sm:text-base w-full sm:w-auto"
             >
               Export Records
             </button>

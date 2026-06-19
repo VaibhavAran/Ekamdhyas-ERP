@@ -131,13 +131,13 @@ export function SettingsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-8">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight flex items-center gap-4">
-            <div className="p-3 bg-slate-900 rounded-2xl shadow-xl shadow-slate-200 text-white">
+          <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight flex items-center gap-3 sm:gap-4">
+            <div className="p-2.5 sm:p-3 bg-slate-900 rounded-2xl shadow-xl shadow-slate-200 text-white">
               <FiShield />
             </div>
             Settings & Security
           </h1>
-          <p className="text-slate-500 mt-2 font-medium ml-16">Manage school controllers</p>
+          <p className="text-slate-500 mt-2 font-medium ml-0 sm:ml-16 text-sm">Manage school controllers</p>
         </div>
       </div>
 

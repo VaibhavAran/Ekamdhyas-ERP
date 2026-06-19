@@ -10,12 +10,14 @@ import {
   AiOutlineLogout,
   AiOutlineAppstore,
   AiOutlineSchedule,
+  AiOutlineClose,
 } from 'react-icons/ai'
 import { writeAuthFlag } from '../utils/authStorage'
 
 const navigationItems = [
   { label: 'Dashboard', to: '/dashboard', icon: AiOutlineHome },
   { label: 'Academic Year', to: '/academic-years', icon: AiOutlineCalendar },
+  { label: 'Board Management', to: '/boards', icon: AiOutlineAppstore },
   { label: 'Depts & Classes', to: '/departments-classes', icon: AiOutlineAppstore },
   { label: 'Students', to: '/students', icon: AiOutlineUser },
   { label: 'Faculty', to: '/faculty', icon: AiOutlineTeam },
@@ -25,7 +27,12 @@ const navigationItems = [
   { label: 'Settings', to: '/settings', icon: AiOutlineSetting },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate()
 
   const handleLogout = () => {
@@ -33,12 +40,19 @@ export function Sidebar() {
     navigate('/', { replace: true })
   }
 
+  const handleNavClick = () => {
+    onClose()
+  }
+
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
       <div className="sidebar-brand">
         <div>
           <p className="sidebar-brand-subtitle" style={{ color: '#64748b', fontSize: '1.4rem' }}>School Panel</p>
         </div>
+        <button className="sidebar-close-btn" onClick={onClose} aria-label="Close menu">
+          <AiOutlineClose size={22} />
+        </button>
       </div>
 
       <nav className="sidebar-nav">
@@ -48,6 +62,7 @@ export function Sidebar() {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={handleNavClick}
               className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
             >
               <IconComponent style={{ width: '20px', height: '20px' }} />

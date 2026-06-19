@@ -13,8 +13,6 @@
   --glass-border: rgba(255, 255, 255, 0.3);
 }
 
-
-
 /* App Shell & Sidebar */
 .app-shell {
   display: grid;
@@ -32,14 +30,32 @@
   position: sticky;
   top: 0;
   height: 100vh;
+  z-index: 40;
 }
 
 .sidebar-brand {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 48px;
   padding: 0 12px;
+}
+
+.sidebar-close-btn {
+  display: none;
+  color: #94a3b8;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.sidebar-close-btn:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .sidebar-brand-badge {
@@ -129,23 +145,35 @@
   margin-bottom: 32px;
 }
 
-@media (max-width: 1024px) {
-  .auth-frame {
-    grid-template-columns: 1fr;
-    max-width: 500px;
-  }
-  .welcome-panel {
-    display: none;
-  }
+/* Mobile hamburger button */
+.mobile-menu-btn {
+  display: none;
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 50;
+  background: #0f172a;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 10px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s;
 }
 
-@media (max-width: 768px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-  .sidebar {
-    display: none;
-  }
+.mobile-menu-btn:active {
+  transform: scale(0.95);
+}
+
+/* Mobile overlay */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 35;
+  backdrop-filter: blur(4px);
 }
 
 /* Dashboard Elements */
@@ -284,3 +312,79 @@
 
 .badge-success { background: #dcfce7; color: #166534; }
 .badge-warning { background: #fef9c3; color: #854d0e; }
+
+/* ============ RESPONSIVE ============ */
+
+@media (max-width: 1024px) {
+  .auth-frame {
+    grid-template-columns: 1fr;
+    max-width: 500px;
+  }
+  .welcome-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  /* Sidebar: hidden by default, slides in from left */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 280px;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    box-shadow: none;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .sidebar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Show hamburger on mobile */
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Show overlay when sidebar is open */
+  .sidebar-overlay {
+    display: block;
+  }
+
+  /* Adjust main content padding for mobile */
+  .app-content {
+    padding: 16px;
+    padding-top: 64px;
+  }
+
+  .content-surface {
+    border-radius: 16px;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-content {
+    padding: 12px;
+    padding-top: 60px;
+  }
+
+  .content-surface {
+    border-radius: 12px;
+    padding: 16px;
+  }
+}
