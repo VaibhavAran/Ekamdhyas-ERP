@@ -24,32 +24,44 @@ export function LoginPage() {
     setIsLoading(true)
 
     try {
-      // 1. Manual check against Firestore 'admins' collection
-      const q = query(
-        collection(db, 'admins'), 
+      // 1. Check controllers collection first (new system)
+      let q = query(
+        collection(db, 'controllers'), 
         where('username', '==', username.trim().toLowerCase())
       );
-      
-      const querySnapshot = await getDocs(q);
-      
+      let querySnapshot = await getDocs(q);
+      let userData: any = null;
+      let userType = 'controller';
+
+      // 2. If not found in controllers, check admins collection (backward compatibility)
+      if (querySnapshot.empty) {
+        q = query(
+          collection(db, 'admins'), 
+          where('username', '==', username.trim().toLowerCase())
+        );
+        querySnapshot = await getDocs(q);
+        userType = 'admin';
+      }
+
       if (querySnapshot.empty) {
         setError('Invalid username or password.');
         setIsLoading(false);
         return;
       }
 
-      const adminData = querySnapshot.docs[0].data();
+      userData = querySnapshot.docs[0].data();
       
-      if (adminData.password === password) {
+      if (userData.password === password) {
         writeAuthFlag(true)
-        localStorage.setItem('admin-username', adminData.username);
+        localStorage.setItem('controller-username', userData.username);
         navigate(redirectTo, { replace: true })
       } else {
         setError('Invalid username or password.');
       }
     } catch (err: any) {
       console.error("Login error:", err);
-      setError('System error. Please try again later.');
+      const errorMessage = err?.message || 'System error. Please try again later.';
+      setError(errorMessage);
     } finally {
       setIsLoading(false)
     }
@@ -76,7 +88,7 @@ export function LoginPage() {
               Image Based <br /> Attendance System
             </h1>
             <p className="text-slate-400 text-lg max-w-md mx-auto">
-              Advanced administrative control panel. Monitor and manage real-time visual attendance records securely.
+              Advanced school management panel. Monitor and manage real-time visual attendance records securely.
             </p>
           </div>
 
@@ -97,7 +109,7 @@ export function LoginPage() {
               <span className="inline-block py-1 px-3 rounded-full bg-blue-500/10 text-blue-400 text-xs font-bold tracking-wider uppercase mb-4 border border-blue-500/20">
                 Secure Access
               </span>
-              <h2 className="text-3xl font-bold text-white mb-2">Admin Sign In</h2>
+              <h2 className="text-3xl font-bold text-white mb-2">School Sign In</h2>
               <p className="text-slate-400">Enter your credentials to access the command center.</p>
             </div>
 
@@ -115,7 +127,7 @@ export function LoginPage() {
                     value={username}
                     onChange={(event) => setUsername(event.target.value)}
                     autoComplete="username"
-                    placeholder="e.g. admin"
+                    placeholder="e.g. controller"
                     disabled={isLoading}
                     className="w-full pl-11 pr-4 py-3.5 bg-slate-800/50 border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-300 placeholder:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed outline-none"
                   />

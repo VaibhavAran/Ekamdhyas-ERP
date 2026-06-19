@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
-interface AdminUser {
+interface ControllerUser {
   uid: string;
   username: string;
   role: string;
@@ -17,13 +17,13 @@ interface AdminUser {
 }
 
 export function SettingsPage() {
-  const [currentUserData, setCurrentUserData] = useState<AdminUser | null>(null);
-  const [admins, setAdmins] = useState<AdminUser[]>([]);
+  const [currentUserData, setCurrentUserData] = useState<ControllerUser | null>(null);
+  const [controllers, setControllers] = useState<ControllerUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{message: string; type: 'success' | 'error'} | null>(null);
 
-  // Add Admin State
+  // Add Controller State
   const [addFormData, setAddFormData] = useState({
     username: '',
     password: ''
@@ -38,21 +38,21 @@ export function SettingsPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch Current Admin Profile using username from localStorage
-      const savedUsername = localStorage.getItem('admin-username');
+      // 1. Fetch Current Controller Profile using username from localStorage
+      const savedUsername = localStorage.getItem('controller-username');
       if (savedUsername) {
-        const q = query(collection(db, 'admins'), where('username', '==', savedUsername.toLowerCase()));
-        const adminSnap = await getDocs(q);
-        if (!adminSnap.empty) {
-          const doc = adminSnap.docs[0];
-          setCurrentUserData({ uid: doc.id, ...doc.data() } as AdminUser);
+        const q = query(collection(db, 'controllers'), where('username', '==', savedUsername.toLowerCase()));
+        const controllerSnap = await getDocs(q);
+        if (!controllerSnap.empty) {
+          const doc = controllerSnap.docs[0];
+          setCurrentUserData({ uid: doc.id, ...doc.data() } as ControllerUser);
         }
       }
 
-      // 2. Fetch All Admins
-      const qAll = query(collection(db, 'admins'), orderBy('created_at', 'desc'));
+      // 2. Fetch All Controllers
+      const qAll = query(collection(db, 'controllers'), orderBy('created_at', 'desc'));
       const snap = await getDocs(qAll);
-      setAdmins(snap.docs.map(d => ({ uid: d.id, ...d.data() } as AdminUser)));
+      setControllers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as ControllerUser)));
     } catch (err) {
       console.error("Error fetching settings data:", err);
       showToast("Failed to load settings data", "error");
@@ -67,7 +67,7 @@ export function SettingsPage() {
 
   // --- HANDLERS ---
 
-  const handleAddAdmin = async (e: React.FormEvent) => {
+  const handleAddController = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     
@@ -81,7 +81,7 @@ export function SettingsPage() {
     setIsSubmitting(true);
     try {
       // 1. Check if username already exists
-      const q = query(collection(db, 'admins'), where('username', '==', cleanUsername));
+      const q = query(collection(db, 'controllers'), where('username', '==', cleanUsername));
       const existing = await getDocs(q);
       
       if (!existing.empty) {
@@ -90,21 +90,21 @@ export function SettingsPage() {
         return;
       }
 
-      const newAdminData = {
+      const newControllerData = {
         username: cleanUsername,
         password: addFormData.password,
-        role: 'admin',
+        role: 'controller',
         created_at: serverTimestamp()
       };
 
-      const docRef = await addDoc(collection(db, 'admins'), newAdminData);
+      const docRef = await addDoc(collection(db, 'controllers'), newControllerData);
       
-      setAdmins(prev => [{ uid: docRef.id, ...newAdminData, created_at: new Date() } as AdminUser, ...prev]);
+      setControllers(prev => [{ uid: docRef.id, ...newControllerData, created_at: new Date() } as ControllerUser, ...prev]);
       setAddFormData({ username: '', password: '' });
-      showToast("New administrator added successfully", "success");
+      showToast("New controller added successfully", "success");
     } catch (err: any) {
-      console.error("Add admin error:", err);
-      showToast("Failed to add administrator", "error");
+      console.error("Add controller error:", err);
+      showToast("Failed to add controller", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -137,12 +137,12 @@ export function SettingsPage() {
             </div>
             Settings & Security
           </h1>
-          <p className="text-slate-500 mt-2 font-medium ml-16">Manage system administrators</p>
+          <p className="text-slate-500 mt-2 font-medium ml-16">Manage school controllers</p>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-8">
-        {/* Left Column: Admin Profile */}
+        {/* Left Column: Controller Profile */}
         <div className="lg:col-span-1 space-y-8">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100 bg-slate-50/50">
@@ -157,8 +157,8 @@ export function SettingsPage() {
                   <FiUser size={48} />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900 lowercase">{currentUserData?.username || localStorage.getItem('admin-username')}</h3>
-                  <p className="text-slate-400 font-medium text-[10px] uppercase tracking-widest mt-1">Active Administrator</p>
+                  <h3 className="text-xl font-bold text-slate-900 lowercase">{currentUserData?.username || localStorage.getItem('controller-username')}</h3>
+                  <p className="text-slate-400 font-medium text-[10px] uppercase tracking-widest mt-1">Active Controller</p>
                 </div>
               </div>
             </div>
@@ -169,21 +169,21 @@ export function SettingsPage() {
               <FiShield /> Security Note
             </h4>
             <p className="text-blue-600 text-xs font-medium leading-relaxed">
-              Admin accounts are username-based. Ensure you keep your password secure.
+              Controller accounts are username-based. Ensure you keep your password secure.
             </p>
           </div>
         </div>
 
-        {/* Right Column: Admin Management */}
+        {/* Right Column: Controller Management */}
         <div className="lg:col-span-2 space-y-8">
-          {/* Add Admin Form */}
+          {/* Add Controller Form */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <FiPlus className="text-indigo-600" /> Create New Admin
+                <FiPlus className="text-indigo-600" /> Create New Controller
               </h2>
             </div>
-            <form onSubmit={handleAddAdmin} className="p-8 space-y-6">
+            <form onSubmit={handleAddController} className="p-8 space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Login Username</label>
                 <div className="relative">
@@ -191,7 +191,7 @@ export function SettingsPage() {
                   <input 
                     required
                     type="text" 
-                    placeholder="e.g. admin_jane"
+                    placeholder="e.g. controller_jane"
                     value={addFormData.username}
                     onChange={e => setAddFormData({...addFormData, username: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-12 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10"
@@ -218,49 +218,49 @@ export function SettingsPage() {
                 disabled={isSubmitting}
                 className="w-full bg-indigo-600 text-white py-3 rounded-2xl font-black text-sm shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2"
               >
-                {isSubmitting ? <FiLoader className="animate-spin" /> : <FiPlus />} Create Administrator
+                {isSubmitting ? <FiLoader className="animate-spin" /> : <FiPlus />} Create Controller
               </button>
             </form>
           </div>
 
-          {/* Admin List */}
+          {/* Controller List */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <FiUsers className="text-indigo-600" /> Administrator Directory
+                <FiUsers className="text-indigo-600" /> Controller Directory
               </h2>
-              <span className="text-xs font-bold text-slate-400">{admins.length} Total</span>
+              <span className="text-xs font-bold text-slate-400">{controllers.length} Total</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-white text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
                   <tr>
-                    <th className="px-8 py-5">Administrator Username</th>
+                    <th className="px-8 py-5">Controller Username</th>
                     <th className="px-8 py-5">System Role</th>
                     <th className="px-8 py-5 text-right">Added On</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {admins.map((admin) => (
-                    <tr key={admin.uid} className="hover:bg-slate-50/50 transition-colors group">
+                  {controllers.map((controller) => (
+                    <tr key={controller.uid} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs uppercase">
-                            {admin.username.charAt(0)}
+                            {controller.username.charAt(0)}
                           </div>
-                          <span className="font-bold text-slate-900 lowercase">{admin.username}</span>
-                          {admin.username === localStorage.getItem('admin-username') && (
+                          <span className="font-bold text-slate-900 lowercase">{controller.username}</span>
+                          {controller.username === localStorage.getItem('controller-username') && (
                             <span className="text-[8px] font-black bg-blue-100 text-blue-600 px-2 py-0.5 rounded uppercase ml-2">You</span>
                           )}
                         </div>
                       </td>
                       <td className="px-8 py-5">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-wider">
-                          <FiShield size={10} /> {admin.role}
+                          <FiShield size={10} /> {controller.role}
                         </span>
                       </td>
                       <td className="px-8 py-5 text-right text-slate-400 text-xs font-bold">
-                        {admin.created_at?.toDate ? admin.created_at.toDate().toLocaleDateString() : 'Just now'}
+                        {controller.created_at?.toDate ? controller.created_at.toDate().toLocaleDateString() : 'Just now'}
                       </td>
                     </tr>
                   ))}

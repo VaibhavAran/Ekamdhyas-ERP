@@ -1,4 +1,4 @@
-const AUTH_FLAG = 'admin-auth'
+const AUTH_FLAG = 'school-auth'
 
 function canUseStorage() {
   try {

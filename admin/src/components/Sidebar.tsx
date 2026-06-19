@@ -37,7 +37,7 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-brand">
         <div>
-          <p className="sidebar-brand-subtitle" style={{ color: '#64748b', fontSize: '1.4rem' }}>Admin Panel</p>
+          <p className="sidebar-brand-subtitle" style={{ color: '#64748b', fontSize: '1.4rem' }}>School Panel</p>
         </div>
       </div>
 

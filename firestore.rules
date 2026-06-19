@@ -8,7 +8,17 @@ service cloud.firestore {
       return true;
     }
 
-    // Admins
+    // Schools
+    match /schools/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Controllers (replaces admins)
+    match /controllers/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Admins (kept for backward compatibility)
     match /admins/{document=**} {
       allow read, write: if signedIn();
     }
@@ -55,6 +65,11 @@ service cloud.firestore {
 
     // Attendance Sessions
     match /attendance_sessions/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Academic Years
+    match /academic_years/{document=**} {
       allow read, write: if signedIn();
     }
 

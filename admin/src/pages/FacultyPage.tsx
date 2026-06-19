@@ -119,11 +119,11 @@ export function FacultyPage() {
     setIsSubmitting(true);
     try {
       // Step 1: Create user in Firebase Auth
-      // Use the password manually entered by the admin
+      // Use the password manually entered by the controller
       const newPassword = formData.password; 
       
       // Create a secondary Firebase app instance specifically for user creation
-      // This prevents the admin from being automatically logged out when the new user is created.
+      // This prevents the controller from being automatically logged out when the new user is created.
       const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp' + Date.now());
       const secondaryAuth = getAuth(secondaryApp);
 
@@ -133,7 +133,7 @@ export function FacultyPage() {
       // Sign out of the secondary app and clean up
       await secondaryAuth.signOut();
 
-      // Step 2 & 3: Store faculty data in Firestore using Auth UID (Running as the Admin)
+      // Step 2 & 3: Store faculty data in Firestore using Auth UID (Running as the Controller)
       const facultyData = {
         name: formData.name,
         email: formData.email,

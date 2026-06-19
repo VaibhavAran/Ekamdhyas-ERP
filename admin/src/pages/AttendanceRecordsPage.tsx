@@ -42,7 +42,7 @@ interface Batch {
   batch_name: string;
 }
 
-// AggregatedStudent type removed (not used in this admin page)
+// AggregatedStudent type removed (not used in this school page)
 
 export function AttendanceRecordsPage() {
   // --- METADATA STATE ---
