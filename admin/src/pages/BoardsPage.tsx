@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  FiPlus, FiSearch, FiTrash2, FiX, FiCheck,
-  FiEye, FiUsers, FiAlertCircle,
+  FiPlus, FiSearch, FiEdit2, FiTrash2, FiX, FiCheck,
+  FiEye, FiUsers, FiAlertCircle, FiLoader,
 } from 'react-icons/fi';
 import {
   collection,
@@ -16,67 +16,45 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Board, AcademicYear, Student } from '../types/board';
+import type { Board, Student } from '../types/board';
+
+type BoardForm = {
+  name: string;
+  status: 'active' | 'inactive';
+};
+
+const emptyForm: BoardForm = { name: '', status: 'active' };
 
 export function BoardsPage() {
   const [boards, setBoards] = useState<Board[]>([]);
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterYear, setFilterYear] = useState('');
 
-  // Modals state
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewStudentsOpen, setIsViewStudentsOpen] = useState(false);
   const [selectedBoard, setSelectedBoard] = useState<Board | null>(null);
-
-  // Forms state
-  const [formData, setFormData] = useState({ name: '', academicYearId: '', status: 'active' as 'active' | 'inactive' });
+  const [form, setForm] = useState<BoardForm>(emptyForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // --- Toast ---
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  // --- Fetch Data ---
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [boardsSnap, yearsSnap, studentsSnap] = await Promise.all([
+      const [boardsSnap, studentsSnap] = await Promise.all([
         getDocs(collection(db, 'boards')),
-        getDocs(collection(db, 'academic_years')),
         getDocs(query(collection(db, 'students'), where('role', '==', 'student'))),
       ]);
 
-      const yearsList = yearsSnap.docs.map(d => ({ id: d.id, ...d.data() })) as AcademicYear[];
-      yearsList.sort((a, b) => {
-        if (a.isActive && !b.isActive) return -1;
-        if (!a.isActive && b.isActive) return 1;
-        return b.startDate.localeCompare(a.startDate);
-      });
-      setAcademicYears(yearsList);
+      setStudents(studentsSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Student)));
 
-      const studentsList = studentsSnap.docs.map(d => ({
-        uid: d.id,
-        ...d.data(),
-      })) as Student[];
-      setStudents(studentsList);
-
-      const boardsList = boardsSnap.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-      })) as Board[];
+      const boardsList = boardsSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Board[];
       boardsList.sort((a, b) => {
-        const yearA = yearsList.find(y => y.id === a.academicYearId);
-        const yearB = yearsList.find(y => y.id === b.academicYearId);
-        const yearNameA = yearA?.name || '';
-        const yearNameB = yearB?.name || '';
-        if (yearNameA !== yearNameB) return yearNameB.localeCompare(yearNameA);
         if (a.status === 'active' && b.status !== 'active') return -1;
         if (a.status !== 'active' && b.status === 'active') return 1;
         return a.name.localeCompare(b.name);
@@ -90,156 +68,76 @@ export function BoardsPage() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
-  // --- Helpers ---
-  const resetForm = () => {
-    setFormData({ name: '', academicYearId: '', status: 'active' });
-    setSelectedBoard(null);
+  const getStudentCount = (boardId: string) => students.filter(s => s.board_id === boardId).length;
+
+  const filteredBoards = useMemo(() => {
+    return boards.filter(board =>
+      board.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [boards, searchTerm]);
+
+  const boardStudents = useMemo(() => {
+    if (!selectedBoard) return [];
+    return students.filter(s => s.board_id === selectedBoard.id).sort((a, b) => a.name.localeCompare(b.name));
+  }, [students, selectedBoard]);
+
+  const openAdd = () => {
+    setForm(emptyForm);
+    setIsModalOpen(true);
   };
 
-  const getStudentCount = (boardId: string) => {
-    return students.filter(s => s.board_id === boardId).length;
-  };
-
-  const getYearName = (yearId: string) => {
-    return academicYears.find(y => y.id === yearId)?.name || 'Unknown';
-  };
-
-  // --- Handlers ---
-  const handleAddSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      // Check duplicate name within same academic year
-      const duplicate = boards.find(
-        b => b.name.toLowerCase() === formData.name.toLowerCase() && b.academicYearId === formData.academicYearId
-      );
-      if (duplicate) {
-        showToast('A board with this name already exists in the selected academic year', 'error');
-        setIsSubmitting(false);
-        return;
-      }
-
-      const newBoardData = {
-        name: formData.name,
-        status: formData.status,
-        academicYearId: formData.academicYearId,
-        createdAt: serverTimestamp(),
-      };
-
-      const docRef = await addDoc(collection(db, 'boards'), newBoardData);
-      const newBoard: Board = {
-        id: docRef.id,
-        name: newBoardData.name,
-        status: newBoardData.status,
-        academicYearId: newBoardData.academicYearId,
-      };
-
-      let updatedList = [...boards, newBoard];
-      updatedList.sort((a, b) => {
-        const yearA = academicYears.find(y => y.id === a.academicYearId);
-        const yearB = academicYears.find(y => y.id === b.academicYearId);
-        const yearNameA = yearA?.name || '';
-        const yearNameB = yearB?.name || '';
-        if (yearNameA !== yearNameB) return yearNameB.localeCompare(yearNameA);
-        if (a.status === 'active' && b.status !== 'active') return -1;
-        if (a.status !== 'active' && b.status === 'active') return 1;
-        return a.name.localeCompare(b.name);
-      });
-
-      setBoards(updatedList);
-      setIsAddModalOpen(false);
-      resetForm();
-      showToast('Board added successfully!', 'success');
-    } catch (error) {
-      console.error('Error adding board:', error);
-      showToast('Failed to add board', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleEditClick = (board: Board) => {
+  const openEdit = (board: Board) => {
     setSelectedBoard(board);
-    setFormData({
-      name: board.name,
-      academicYearId: board.academicYearId,
-      status: board.status,
-    });
-    setIsEditModalOpen(true);
+    setForm({ name: board.name, status: board.status });
+    setIsModalOpen(true);
   };
 
-  const handleEditSubmit = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedBoard) return;
     setIsSubmitting(true);
     try {
-      // Check duplicate name within same academic year (excluding current)
       const duplicate = boards.find(
-        b => b.id !== selectedBoard.id &&
-          b.name.toLowerCase() === formData.name.toLowerCase() &&
-          b.academicYearId === formData.academicYearId
+        b => b.name.toLowerCase() === form.name.toLowerCase() && b.id !== selectedBoard?.id
       );
       if (duplicate) {
-        showToast('A board with this name already exists in the selected academic year', 'error');
+        showToast('A board with this name already exists', 'error');
         setIsSubmitting(false);
         return;
       }
 
-      await updateDoc(doc(db, 'boards', selectedBoard.id), {
-        name: formData.name,
-        academicYearId: formData.academicYearId,
-        status: formData.status,
-      });
-
-      // Also update board_name on students assigned to this board
-      const studentsToUpdate = students.filter(s => s.board_id === selectedBoard.id);
-      if (studentsToUpdate.length > 0) {
-        const batch = writeBatch(db);
-        studentsToUpdate.forEach(s => {
-          batch.update(doc(db, 'students', s.uid), {
-            board_name: formData.name,
-          });
+      if (selectedBoard) {
+        await updateDoc(doc(db, 'boards', selectedBoard.id), {
+          name: form.name,
+          status: form.status,
         });
-        await batch.commit();
+
+        const studentsToUpdate = students.filter(s => s.board_id === selectedBoard.id);
+        if (studentsToUpdate.length > 0) {
+          const batch = writeBatch(db);
+          studentsToUpdate.forEach(s => batch.update(doc(db, 'students', s.uid), { board_name: form.name }));
+          await batch.commit();
+          setStudents(prev => prev.map(s => s.board_id === selectedBoard!.id ? { ...s, board_name: form.name } : s));
+        }
+
+        setBoards(prev => prev.map(b => b.id === selectedBoard.id ? { ...b, name: form.name, status: form.status } : b));
+        showToast('Board updated successfully!', 'success');
+      } else {
+        const newBoardData = { name: form.name, status: form.status, createdAt: serverTimestamp() };
+        const docRef = await addDoc(collection(db, 'boards'), newBoardData);
+        const newBoard: Board = { id: docRef.id, name: newBoardData.name, status: newBoardData.status };
+        setBoards(prev => [...prev, newBoard]);
+        showToast('Board added successfully!', 'success');
       }
 
-      let updatedList = boards.map(b =>
-        b.id === selectedBoard.id
-          ? { ...b, name: formData.name, academicYearId: formData.academicYearId, status: formData.status }
-          : b
-      );
-      updatedList.sort((a, b) => {
-        const yearA = academicYears.find(y => y.id === a.academicYearId);
-        const yearB = academicYears.find(y => y.id === b.academicYearId);
-        const yearNameA = yearA?.name || '';
-        const yearNameB = yearB?.name || '';
-        if (yearNameA !== yearNameB) return yearNameB.localeCompare(yearNameA);
-        if (a.status === 'active' && b.status !== 'active') return -1;
-        if (a.status !== 'active' && b.status === 'active') return 1;
-        return a.name.localeCompare(b.name);
-      });
-
-      setBoards(updatedList);
-
-      // Update students state too
-      if (studentsToUpdate.length > 0) {
-        setStudents(prev =>
-          prev.map(s =>
-            s.board_id === selectedBoard!.id ? { ...s, board_name: formData.name } : s
-          )
-        );
-      }
-
-      setIsEditModalOpen(false);
-      resetForm();
-      showToast('Board updated successfully!', 'success');
+      setIsModalOpen(false);
+      setForm(emptyForm);
+      setSelectedBoard(null);
+      fetchData();
     } catch (error) {
-      console.error('Error updating board:', error);
-      showToast('Failed to update board', 'error');
+      console.error('Error saving board:', error);
+      showToast('Failed to save board', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -249,10 +147,8 @@ export function BoardsPage() {
     const newStatus = board.status === 'active' ? 'inactive' : 'active';
     try {
       await updateDoc(doc(db, 'boards', board.id), { status: newStatus });
-      setBoards(prev =>
-        prev.map(b => (b.id === board.id ? { ...b, status: newStatus } : b))
-      );
-      showToast(`Board ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully!`, 'success');
+      setBoards(prev => prev.map(b => b.id === board.id ? { ...b, status: newStatus } : b));
+      showToast(`Board ${newStatus === 'active' ? 'activated' : 'deactivated'}!`, 'success');
     } catch (error) {
       console.error('Error toggling board status:', error);
       showToast('Failed to update board status', 'error');
@@ -260,14 +156,11 @@ export function BoardsPage() {
   };
 
   const handleDelete = async (board: Board) => {
-    const studentCount = getStudentCount(board.id);
-    if (studentCount > 0) {
-      showToast('Cannot delete board with assigned students. Remove students first.', 'error');
+    if (getStudentCount(board.id) > 0) {
+      showToast('Cannot delete board with assigned students', 'error');
       return;
     }
-
-    if (!window.confirm(`Are you sure you want to delete the board "${board.name}"?`)) return;
-
+    if (!window.confirm(`Are you sure you want to delete "${board.name}"?`)) return;
     try {
       await deleteDoc(doc(db, 'boards', board.id));
       setBoards(prev => prev.filter(b => b.id !== board.id));
@@ -278,98 +171,45 @@ export function BoardsPage() {
     }
   };
 
-  const handleViewStudents = (board: Board) => {
-    setSelectedBoard(board);
-    setIsViewStudentsOpen(true);
-  };
-
-  // --- Filtered Data ---
-  const filteredBoards = useMemo(() => {
-    return boards.filter(board => {
-      const matchesSearch = board.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesYear = filterYear ? board.academicYearId === filterYear : true;
-      return matchesSearch && matchesYear;
-    });
-  }, [boards, searchTerm, filterYear]);
-
-  // Students for the selected board in View Students modal
-  const boardStudents = useMemo(() => {
-    if (!selectedBoard) return [];
-    return students
-      .filter(s => s.board_id === selectedBoard.id)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [students, selectedBoard]);
-
   return (
-    <div className="p-6">
-      {/* Toast Notification */}
+    <div className="space-y-8 animate-in fade-in duration-500">
       {toast && (
-        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 rounded-xl bg-slate-900/95 backdrop-blur-sm px-6 py-4 text-white shadow-2xl">
-          {toast.type === 'success' ? (
-            <FiCheck className="text-emerald-400 text-xl" />
-          ) : (
-            <FiAlertCircle className="text-red-400 text-xl" />
-          )}
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 rounded-xl bg-slate-900/95 backdrop-blur-sm px-6 py-4 text-white shadow-2xl animate-in slide-in-from-top-5">
+          {toast.type === 'success' ? <FiCheck className="text-emerald-400 text-xl" /> : <FiAlertCircle className="text-red-400 text-xl" />}
           <p className="font-medium">{toast.message}</p>
         </div>
       )}
 
-      {/* Header Section */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+      {/* Header */}
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Board Management</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Manage academic boards within each academic year.
-          </p>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Board Management</h1>
+          <p className="mt-2 text-slate-500 font-medium">Manage academic boards (CBSE, ICSE, State Board, etc.)</p>
         </div>
         <button
-          onClick={() => {
-            resetForm();
-            setFormData(prev => ({
-              ...prev,
-              academicYearId: academicYears.find(y => y.isActive)?.id || '',
-            }));
-            setIsAddModalOpen(true);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center transition-colors sm:w-auto"
+          onClick={openAdd}
+          className="group flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 hover:shadow-blue-600/40 hover:-translate-y-0.5 active:translate-y-0"
         >
-          <FiPlus className="mr-2" /> Add Board
+          <FiPlus className="text-lg transition-transform group-hover:rotate-90" />
+          Add New Board
         </button>
       </div>
 
-      {/* Search & Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-        <div className="flex flex-col md:flex-row gap-4 justify-between">
-          <div className="relative flex-1 max-w-md">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FiSearch className="text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search boards..."
-              className="pl-10 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="w-full md:w-64">
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-            >
-              <option value="">All Academic Years</option>
-              {academicYears.map((year) => (
-                <option key={year.id} value={year.id}>
-                  {year.name} {year.isActive ? '(Active)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+      {/* Search */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="relative max-w-md">
+          <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search boards..."
+            className="pl-10 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
       </div>
 
-      {/* Boards Table */}
+      {/* Table */}
       {isLoading ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex justify-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -380,38 +220,17 @@ export function BoardsPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="py-4 px-6 font-semibold text-gray-700">Academic Year</th>
                   <th className="py-4 px-6 font-semibold text-gray-700">Board Name</th>
-                  <th className="py-4 px-6 font-semibold text-gray-700">Status</th>
-                  <th className="py-4 px-6 font-semibold text-gray-700 text-center">Total Students</th>
-                  <th className="py-4 px-6 font-semibold text-gray-700 w-28 text-center">Actions</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 text-center">Students</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 text-center">Status</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 w-32 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredBoards.length > 0 ? (
                   filteredBoards.map((board) => (
-                    <tr
-                      key={board.id}
-                      onClick={() => handleEditClick(board)}
-                      className="border-b border-gray-100 hover:bg-blue-50/50 transition-colors cursor-pointer"
-                    >
-                      <td className="py-4 px-6 text-gray-600 font-medium">
-                        {getYearName(board.academicYearId)}
-                      </td>
-                      <td className="py-4 px-6 font-medium text-gray-800">
-                        {board.name}
-                      </td>
-                      <td className="py-4 px-6">
-                        {board.status === 'active' ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                            <FiCheck className="mr-1" /> Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                            Inactive
-                          </span>
-                        )}
-                      </td>
+                    <tr key={board.id} className="border-b border-gray-100 hover:bg-blue-50/50 transition-colors">
+                      <td className="py-4 px-6 font-semibold text-gray-900">{board.name}</td>
                       <td className="py-4 px-6 text-center">
                         <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 bg-gray-100 px-2.5 py-1 rounded-full">
                           <FiUsers size={14} className="text-gray-500" />
@@ -419,21 +238,39 @@ export function BoardsPage() {
                         </span>
                       </td>
                       <td className="py-4 px-6 text-center">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleViewStudents(board); }}
-                          className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg transition-colors"
-                        >
-                          <FiEye size={16} /> View Students
-                        </button>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${board.status === 'active'
+                            ? 'bg-green-100 text-green-800 border border-green-200'
+                            : 'bg-gray-100 text-gray-600 border border-gray-200'
+                          }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${board.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                          {board.status}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => { setSelectedBoard(board); setIsViewStudentsOpen(true); }}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                            title="View Students"
+                          ><FiEye size={16} /></button>
+                          <button
+                            onClick={() => openEdit(board)}
+                            className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                            title="Edit"
+                          ><FiEdit2 size={16} /></button>
+                          <button
+                            onClick={() => handleDelete(board)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Delete"
+                          ><FiTrash2 size={16} /></button>
+                        </div>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-gray-500">
-                      {boards.length === 0
-                        ? 'No boards found. Add one to get started.'
-                        : 'No boards match your filter.'}
+                    <td colSpan={4} className="py-12 text-center text-gray-500">
+                      {boards.length === 0 ? 'No boards found. Add one to get started.' : 'No boards match your filter.'}
                     </td>
                   </tr>
                 )}
@@ -443,349 +280,160 @@ export function BoardsPage() {
         </div>
       )}
 
-      {/* --- ADD MODAL --- */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-xl font-bold text-gray-800">Add Board</h2>
-              <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <FiX size={24} />
+      {/* Add / Edit Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsModalOpen(false)}></div>
+          <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6">
+              <h2 className="text-xl font-bold text-slate-900">{selectedBoard ? 'Edit Board' : 'Add New Board'}</h2>
+              <button onClick={() => setIsModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                <FiX className="text-xl" />
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Academic Year *
-                  </label>
-                  <select
-                    required
-                    className="w-full border border-gray-300 rounded-lg py-2 px-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                    value={formData.academicYearId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, academicYearId: e.target.value })
-                    }
-                  >
-                    <option value="" disabled>
-                      Select Academic Year
-                    </option>
-                    {academicYears.map((year) => (
-                      <option key={year.id} value={year.id}>
-                        {year.name} {year.isActive ? '(Active)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Board Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full border border-gray-300 rounded-lg py-2 px-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    placeholder="e.g. CBSE, ICSE, State Board"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Status
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, status: 'active' })}
-                      className={`py-2 rounded-lg border font-medium text-sm transition-all flex items-center justify-center gap-2 ${
-                        formData.status === 'active'
-                          ? 'bg-green-50 border-green-200 text-green-700 ring-2 ring-green-500/20'
-                          : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          formData.status === 'active' ? 'bg-green-500' : 'bg-gray-300'
-                        }`}
-                      ></div>
-                      Active
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, status: 'inactive' })}
-                      className={`py-2 rounded-lg border font-medium text-sm transition-all flex items-center justify-center gap-2 ${
-                        formData.status === 'inactive'
-                          ? 'bg-gray-100 border-gray-300 text-gray-700 ring-2 ring-gray-500/20'
-                          : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          formData.status === 'inactive' ? 'bg-gray-500' : 'bg-gray-300'
-                        }`}
-                      ></div>
-                      Inactive
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end space-x-3">
+            {selectedBoard && (
+              <div className="px-8 pt-5">
                 <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  onClick={async () => { await handleToggleStatus(selectedBoard); setIsModalOpen(false); setSelectedBoard(null); }}
+                  className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-bold transition-colors ${selectedBoard.status === 'active'
+                      ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                      : 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
+                    }`}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Saving...' : 'Save Board'}
+                  {selectedBoard.status === 'active' ? <><FiAlertCircle size={16} /> Deactivate Board</> : <><FiCheck size={16} /> Activate Board</>}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            )}
 
-      {/* --- EDIT MODAL --- */}
-      {isEditModalOpen && selectedBoard && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-xl font-bold text-gray-800">Edit Board</h2>
-              <button
-                onClick={() => setIsEditModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <FiX size={24} />
-              </button>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="mb-5">
-              <button
-                onClick={async () => {
-                  await handleToggleStatus(selectedBoard);
-                  setIsEditModalOpen(false);
-                }}
-                className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                  selectedBoard.status === 'active'
-                    ? 'border-yellow-200 bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
-                    : 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
-                }`}
-              >
-                {selectedBoard.status === 'active' ? (
-                  <><FiAlertCircle size={16} /> Deactivate Board</>
-                ) : (
-                  <><FiCheck size={16} /> Activate Board</>
-                )}
-              </button>
-            </div>
-
-            <form onSubmit={handleEditSubmit}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Academic Year *
-                  </label>
-                  <select
-                    required
-                    className="w-full border border-gray-300 rounded-lg py-2 px-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                    value={formData.academicYearId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, academicYearId: e.target.value })
-                    }
-                  >
-                    <option value="" disabled>
-                      Select Academic Year
-                    </option>
-                    {academicYears.map((year) => (
-                      <option key={year.id} value={year.id}>
-                        {year.name} {year.isActive ? '(Active)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Board Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full border border-gray-300 rounded-lg py-2 px-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Status
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, status: 'active' })}
-                      className={`py-2 rounded-lg border font-medium text-sm transition-all flex items-center justify-center gap-2 ${
-                        formData.status === 'active'
-                          ? 'bg-green-50 border-green-200 text-green-700 ring-2 ring-green-500/20'
-                          : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          formData.status === 'active' ? 'bg-green-500' : 'bg-gray-300'
-                        }`}
-                      ></div>
-                      Active
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, status: 'inactive' })}
-                      className={`py-2 rounded-lg border font-medium text-sm transition-all flex items-center justify-center gap-2 ${
-                        formData.status === 'inactive'
-                          ? 'bg-gray-100 border-gray-300 text-gray-700 ring-2 ring-gray-500/20'
-                          : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          formData.status === 'inactive' ? 'bg-gray-500' : 'bg-gray-300'
-                        }`}
-                      ></div>
-                      Inactive
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Updating...' : 'Update Board'}
-                </button>
-              </div>
-
-              {/* Delete Button */}
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleDelete(selectedBoard);
-                    setIsEditModalOpen(false);
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm font-medium hover:bg-red-100 transition-colors"
-                >
-                  <FiTrash2 size={16} /> Delete Board
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* --- VIEW STUDENTS MODAL --- */}
-      {isViewStudentsOpen && selectedBoard && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center px-8 py-5 border-b border-gray-100">
+            <form onSubmit={handleSave} className="p-8 space-y-5">
               <div>
-                <h2 className="text-xl font-bold text-gray-800">
-                  Students in {selectedBoard.name}
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  {getYearName(selectedBoard.academicYearId)} &middot;{' '}
-                  {boardStudents.length} student{boardStudents.length !== 1 ? 's' : ''}
-                </p>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Board Name <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                  placeholder="e.g. CBSE, ICSE, State Board"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
               </div>
-              <button
-                onClick={() => {
-                  setIsViewStudentsOpen(false);
-                  setSelectedBoard(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <FiX size={24} />
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Status</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, status: 'active' })}
+                    className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${form.status === 'active'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-2 ring-emerald-500/20'
+                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                  >
+                    <div className={`w-2 h-2 rounded-full ${form.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                    Active
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, status: 'inactive' })}
+                    className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${form.status === 'inactive'
+                        ? 'bg-slate-100 border-slate-300 text-slate-700 ring-2 ring-slate-500/20'
+                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                  >
+                    <div className={`w-2 h-2 rounded-full ${form.status === 'inactive' ? 'bg-slate-500' : 'bg-slate-300'}`}></div>
+                    Inactive
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-8 flex gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-50">
+                  {isSubmitting ? <FiLoader className="animate-spin text-lg" /> : selectedBoard ? 'Update Board' : 'Save Board'}
+                </button>
+              </div>
+
+              {selectedBoard && (
+                <div className="pt-3">
+                  <button
+                    type="button"
+                    onClick={() => { handleDelete(selectedBoard); setIsModalOpen(false); setSelectedBoard(null); }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 transition-colors"
+                  >
+                    <FiTrash2 size={16} /> Delete Board
+                  </button>
+                </div>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Students Modal */}
+      {isViewStudentsOpen && selectedBoard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => { setIsViewStudentsOpen(false); setSelectedBoard(null); }}></div>
+          <div className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6 bg-slate-50/50">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white font-bold text-2xl shadow-lg shadow-blue-600/20">
+                  {selectedBoard.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">{selectedBoard.name}</h2>
+                  <div className="text-slate-500 text-sm font-medium mt-1">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider ${selectedBoard.status === 'active' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                      {selectedBoard.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => { setIsViewStudentsOpen(false); setSelectedBoard(null); }} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors bg-white shadow-sm border border-slate-200">
+                <FiX className="text-xl" />
               </button>
             </div>
 
-            <div className="overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto p-8">
               {boardStudents.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="py-3 px-4 font-semibold text-gray-700 text-sm">Student ID</th>
-                        <th className="py-3 px-4 font-semibold text-gray-700 text-sm">Name</th>
-                        <th className="py-3 px-4 font-semibold text-gray-700 text-sm">Class</th>
-                        <th className="py-3 px-4 font-semibold text-gray-700 text-sm">Division</th>
-                        <th className="py-3 px-4 font-semibold text-gray-700 text-sm">Status</th>
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                  <table className="w-full text-left text-sm whitespace-nowrap">
+                    <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-xs font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="px-6 py-4">Roll No</th>
+                        <th className="px-6 py-4">Student</th>
+                        <th className="px-6 py-4">Class</th>
+                        <th className="px-6 py-4">Division</th>
+                        <th className="px-6 py-4">Status</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-slate-100">
                       {boardStudents.map((student) => (
-                        <tr
-                          key={student.uid}
-                          className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                        >
-                          <td className="py-3 px-4">
-                            <span className="font-mono text-sm font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
+                        <tr key={student.uid} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono text-sm font-medium text-slate-700 bg-slate-100 px-2.5 py-1 rounded border border-slate-200">
                               {student.roll_no}
                             </span>
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
-                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-sm">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-sm">
                                 {student.name.charAt(0).toUpperCase()}
                               </div>
                               <div>
-                                <div className="font-medium text-gray-800 text-sm">{student.name}</div>
-                                <div className="text-gray-500 text-xs">{student.email}</div>
+                                <div className="font-semibold text-slate-900">{student.name}</div>
+                                <div className="text-slate-500 text-xs">{student.email}</div>
                               </div>
                             </div>
                           </td>
-                          <td className="py-3 px-4 text-sm text-gray-600 font-medium">
-                            {student.class_name}
-                          </td>
-                          <td className="py-3 px-4 text-sm text-gray-600">
-                            {student.batch_name || '-'}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                student.status === 'active'
-                                  ? 'bg-green-100 text-green-800 border border-green-200'
-                                  : 'bg-gray-100 text-gray-600 border border-gray-200'
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  student.status === 'active' ? 'bg-green-500' : 'bg-gray-400'
-                                }`}
-                              ></span>
+                          <td className="px-6 py-4 text-sm text-slate-700 font-medium">{student.class_name}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{student.batch_name || '-'}</td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${student.status === 'active'
+                                ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-500 border border-slate-200'
+                              }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${student.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
                               {student.status}
                             </span>
                           </td>
@@ -795,25 +443,19 @@ export function BoardsPage() {
                   </table>
                 </div>
               ) : (
-                <div className="text-center py-16 text-gray-500">
-                  <FiUsers className="mx-auto text-4xl mb-4 text-gray-300" />
-                  <p className="font-medium">No students assigned to this board yet.</p>
-                  <p className="text-sm mt-1">
-                    Students will appear here when assigned to this board.
-                  </p>
+                <div className="text-center py-16 text-slate-500">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 mb-4">
+                    <FiUsers className="text-2xl text-slate-400" />
+                  </div>
+                  <p className="text-slate-900 font-semibold mb-1">No students assigned yet</p>
+                  <p className="text-sm">Students will appear here when assigned to this board.</p>
                 </div>
               )}
             </div>
 
-            <div className="px-8 py-4 border-t border-gray-100 flex justify-end">
-              <button
-                onClick={() => {
-                  setIsViewStudentsOpen(false);
-                  setSelectedBoard(null);
-                }}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Close
+            <div className="border-t border-slate-100 px-8 py-5 bg-slate-50/50 flex justify-end">
+              <button onClick={() => { setIsViewStudentsOpen(false); setSelectedBoard(null); }} className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 transition-colors shadow-md">
+                Close Details
               </button>
             </div>
           </div>

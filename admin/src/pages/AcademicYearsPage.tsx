@@ -8,7 +8,7 @@ import {
   doc, 
   deleteDoc, 
   writeBatch, 
-  serverTimestamp 
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -77,7 +77,7 @@ export function AcademicYearsPage() {
     setIsLoading(true);
     try {
       const batch = writeBatch(db);
-      
+
       academicYears.forEach((year) => {
         const yearRef = doc(db, 'academic_years', year.id);
         if (year.id === id) {
@@ -88,8 +88,8 @@ export function AcademicYearsPage() {
       });
 
       await batch.commit();
-      
-      setAcademicYears(prev => 
+
+      setAcademicYears(prev =>
         prev.map(year => ({
           ...year,
           isActive: year.id === id

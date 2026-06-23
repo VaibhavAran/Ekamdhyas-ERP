@@ -1,54 +1,69 @@
-import { useState, useEffect } from 'react';
-import { 
-  collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp 
+import { useState, useEffect, useMemo } from 'react';
+import {
+  collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
+  query, where
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { 
-  AiOutlinePlus, AiOutlineEdit, AiOutlineDelete, AiOutlineClose 
-} from 'react-icons/ai';
+import {
+  FiPlus, FiSearch, FiEdit2, FiTrash2, FiX, FiCheck, FiEye,
+  FiAlertCircle, FiUsers, FiBook, FiAward, FiUser,
+} from 'react-icons/fi';
+import type { ClassModel, Board } from '../types/board';
 
-// Types
-interface Department {
+interface Faculty {
   id: string;
   name: string;
-  created_at?: unknown;
 }
 
-interface ClassModel {
-  id: string;
+interface Student {
+  uid: string;
   name: string;
-  department_id: string;
-  department_name: string;
-  created_at?: unknown;
-}
-
-interface Batch {
-  id: string;
+  roll_no: string;
+  email: string;
   class_id: string;
   class_name: string;
-  batch_name: string;
-  roll_start: number;
-  roll_end: number;
+  division?: string;
+  status: 'active' | 'inactive';
 }
 
+type ClassForm = {
+  id: string;
+  name: string;
+  board_id: string;
+  board_name: string;
+  division: string;
+  class_teacher_id: string;
+  class_teacher_name: string;
+  capacity: string;
+  status: 'active' | 'inactive';
+};
+
+const emptyForm: ClassForm = {
+  id: '',
+  name: '',
+  board_id: '',
+  board_name: '',
+  division: '',
+  class_teacher_id: '',
+  class_teacher_name: '',
+  capacity: '',
+  status: 'active',
+};
+
 export function DepartmentsClassesPage() {
-  const [activeTab, setActiveTab] = useState<'departments' | 'classes' | 'batches'>('departments');
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [classes, setClasses] = useState<ClassModel[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [faculty, setFaculty] = useState<Faculty[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterBoard, setFilterBoard] = useState('');
 
-  // Modals
-  const [showDeptModal, setShowDeptModal] = useState(false);
-  const [showClassModal, setShowClassModal] = useState(false);
-  const [showBatchModal, setShowBatchModal] = useState(false);
-  
-  // Forms
-  const [deptForm, setDeptForm] = useState({ id: '', name: '' });
-  const [classForm, setClassForm] = useState({ id: '', name: '', department_id: '' });
-  const [batchForm, setBatchForm] = useState({ id: '', class_id: '', batch_name: '', roll_start: '', roll_end: '' });
+  const [showModal, setShowModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedClass, setSelectedClass] = useState<ClassModel | null>(null);
+  const [form, setForm] = useState<ClassForm>(emptyForm);
 
-  // Notifications
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -59,20 +74,40 @@ export function DepartmentsClassesPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // Fetch Departments
-      const deptSnap = await getDocs(collection(db, 'departments'));
-      const deptsData = deptSnap.docs.map(d => ({ id: d.id, ...d.data() } as Department));
-      setDepartments(deptsData);
+      const [classSnap, boardSnap, facultySnap, studentSnap] = await Promise.all([
+        getDocs(collection(db, 'classes')),
+        getDocs(collection(db, 'boards')),
+        getDocs(collection(db, 'faculty')),
+        getDocs(query(collection(db, 'students'), where('role', '==', 'student'))),
+      ]);
 
-      // Fetch Classes
-      const classesSnap = await getDocs(collection(db, 'classes'));
-      const classesData = classesSnap.docs.map(c => ({ id: c.id, ...c.data() } as ClassModel));
+      const boardsList = boardSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Board[];
+      setBoards(boardsList);
+
+      setFaculty(facultySnap.docs.map(d => ({ id: d.id, name: d.data().name } as Faculty)));
+
+      const studentsList = studentSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Student));
+      setStudents(studentsList);
+
+      const classesData = classSnap.docs.map(d => {
+        const data = d.data();
+        const boardId = data.board_id || '';
+        const teacherId = data.class_teacher_id || '';
+        return {
+          id: d.id,
+          name: data.name || '',
+          board_id: boardId,
+          board_name: data.board_name || boardsList.find(b => b.id === boardId)?.name || '',
+          division: data.division || '',
+          class_teacher_id: teacherId,
+          class_teacher_name: data.class_teacher_name || facultySnap.docs.find(f => f.id === teacherId)?.data().name || '',
+          capacity: data.capacity || 0,
+          status: data.status || 'active',
+          created_at: data.created_at,
+        } as ClassModel;
+      });
+
       setClasses(classesData);
-
-      // Fetch Batches
-      const batchesSnap = await getDocs(collection(db, 'batches'));
-      const batchesData = batchesSnap.docs.map(b => ({ id: b.id, ...b.data() } as Batch));
-      setBatches(batchesData);
     } catch (error) {
       console.error("Error fetching data:", error);
       showToast("Failed to load data.", "error");
@@ -85,80 +120,48 @@ export function DepartmentsClassesPage() {
     fetchData();
   }, []);
 
-  // Compute total classes for a department
-  const getClassesCount = (deptId: string) => {
-    return classes.filter(c => c.department_id === deptId).length;
+  const getStudentCount = (classId: string) => {
+    return students.filter(s => s.class_id === classId).length;
   };
 
-  // ----- Department Handlers -----
-  const handleSaveDept = async (e: React.FormEvent) => {
+  const filteredClasses = useMemo(() => {
+    return classes.filter(c => {
+      const matchSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.class_teacher_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchBoard = filterBoard ? c.board_id === filterBoard : true;
+      return matchSearch && matchBoard;
+    });
+  }, [classes, searchTerm, filterBoard]);
+
+  const getBoardName = (id: string) => boards.find(b => b.id === id)?.name || 'Unknown';
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deptForm.name) return;
+    if (!form.name || !form.board_id) return;
     try {
-      if (deptForm.id) {
-        // Edit
-        await updateDoc(doc(db, 'departments', deptForm.id), {
-          name: deptForm.name
-        });
-        showToast('Department updated', 'success');
-      } else {
-        // Add
-        await addDoc(collection(db, 'departments'), {
-          name: deptForm.name,
-          created_at: serverTimestamp()
-        });
-        showToast('Department added', 'success');
-      }
-      setShowDeptModal(false);
-      fetchData();
-    } catch (err) {
-      console.error(err);
-      showToast('Error saving department', 'error');
-    }
-  };
+      const boardName = boards.find(b => b.id === form.board_id)?.name || form.board_name;
+      const teacherName = faculty.find(f => f.id === form.class_teacher_id)?.name || form.class_teacher_name;
+      const capacityNum = form.capacity ? parseInt(form.capacity, 10) : 0;
 
-  const handleDeleteDept = async (id: string) => {
-    if (getClassesCount(id) > 0) {
-      showToast('Cannot delete department with assigned classes', 'error');
-      return;
-    }
-    if (!window.confirm("Are you sure you want to delete this department?")) return;
-    try {
-      await deleteDoc(doc(db, 'departments', id));
-      showToast('Department deleted', 'success');
-      fetchData();
-    } catch (err) {
-      console.error(err);
-      showToast('Error deleting department', 'error');
-    }
-  };
+      const payload = {
+        name: form.name,
+        board_id: form.board_id,
+        board_name: boardName,
+        division: form.division,
+        class_teacher_id: form.class_teacher_id,
+        class_teacher_name: teacherName,
+        capacity: capacityNum,
+        status: form.status,
+      };
 
-  // ----- Class Handlers -----
-  const handleSaveClass = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!classForm.name || !classForm.department_id) return;
-    try {
-      const deptName = departments.find(d => d.id === classForm.department_id)?.name || '';
-      
-      if (classForm.id) {
-        // Edit
-        await updateDoc(doc(db, 'classes', classForm.id), {
-          name: classForm.name,
-          department_id: classForm.department_id,
-          department_name: deptName
-        });
+      if (form.id) {
+        await updateDoc(doc(db, 'classes', form.id), payload);
         showToast('Class updated', 'success');
       } else {
-        // Add
-        await addDoc(collection(db, 'classes'), {
-          name: classForm.name,
-          department_id: classForm.department_id,
-          department_name: deptName,
-          created_at: serverTimestamp()
-        });
+        await addDoc(collection(db, 'classes'), { ...payload, created_at: serverTimestamp() });
         showToast('Class added', 'success');
       }
-      setShowClassModal(false);
+      setShowModal(false);
       fetchData();
     } catch (err) {
       console.error(err);
@@ -166,7 +169,11 @@ export function DepartmentsClassesPage() {
     }
   };
 
-  const handleDeleteClass = async (id: string) => {
+  const handleDelete = async (id: string) => {
+    if (getStudentCount(id) > 0) {
+      showToast('Cannot delete class with assigned students', 'error');
+      return;
+    }
     if (!window.confirm("Are you sure you want to delete this class?")) return;
     try {
       await deleteDoc(doc(db, 'classes', id));
@@ -178,455 +185,434 @@ export function DepartmentsClassesPage() {
     }
   };
 
-  // ----- Batch Handlers -----
-  const handleSaveBatch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!batchForm.class_id || !batchForm.batch_name) return;
-    try {
-      const className = classes.find(c => c.id === batchForm.class_id)?.name || '';
-      const rollStart = parseInt(batchForm.roll_start) || 0;
-      const rollEnd = parseInt(batchForm.roll_end) || 0;
-      
-      if (batchForm.id) {
-        // Edit
-        await updateDoc(doc(db, 'batches', batchForm.id), {
-          class_id: batchForm.class_id,
-          class_name: className,
-          batch_name: batchForm.batch_name,
-          roll_start: rollStart,
-          roll_end: rollEnd
-        });
-        showToast('Batch updated', 'success');
-      } else {
-        // Add
-        await addDoc(collection(db, 'batches'), {
-          class_id: batchForm.class_id,
-          class_name: className,
-          batch_name: batchForm.batch_name,
-          roll_start: rollStart,
-          roll_end: rollEnd,
-          created_at: serverTimestamp()
-        });
-        showToast('Batch added', 'success');
-      }
-      setShowBatchModal(false);
-      fetchData();
-    } catch (err) {
-      console.error(err);
-      showToast('Error saving batch', 'error');
-    }
+  const openAdd = () => {
+    setForm(emptyForm);
+    setShowModal(true);
   };
 
-  const handleDeleteBatch = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this batch?")) return;
-    try {
-      await deleteDoc(doc(db, 'batches', id));
-      showToast('Batch deleted', 'success');
-      fetchData();
-    } catch (err) {
-      console.error(err);
-      showToast('Error deleting batch', 'error');
-    }
+  const openEdit = (c: ClassModel) => {
+    setForm({
+      id: c.id,
+      name: c.name,
+      board_id: c.board_id,
+      board_name: c.board_name,
+      division: c.division || '',
+      class_teacher_id: c.class_teacher_id || '',
+      class_teacher_name: c.class_teacher_name || '',
+      capacity: c.capacity ? String(c.capacity) : '',
+      status: c.status,
+    });
+    setShowModal(true);
+  };
+
+  const openView = (c: ClassModel) => {
+    setSelectedClass(c);
+    setShowViewModal(true);
   };
 
   return (
-    <div className="page-container p-6 w-full">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Departments & Classes</h1>
-          <p className="text-gray-500 text-sm mt-1">Manage academic organization structure</p>
-        </div>
-      </div>
-
+    <div className="space-y-8 animate-in fade-in duration-500">
       {toast && (
-        <div className={`fixed top-4 right-4 p-4 rounded bg-white shadow-lg border-l-4 z-50 transition-all ${
-          toast.type === 'success' ? 'border-green-500 text-green-700' : 'border-red-500 text-red-700'
-        }`}>
-          {toast.message}
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 rounded-xl bg-slate-900/95 backdrop-blur-sm px-6 py-4 text-white shadow-2xl animate-in slide-in-from-top-5">
+          {toast.type === 'success' ? <FiCheck className="text-emerald-400 text-xl" /> : <FiAlertCircle className="text-red-400 text-xl" />}
+          <p className="font-medium">{toast.message}</p>
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex space-x-4 mb-4 border-b border-gray-200">
+      {/* Header */}
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Class Management</h1>
+          <p className="mt-2 text-slate-500 font-medium">Manage classes organized by Board</p>
+        </div>
         <button
-          onClick={() => setActiveTab('departments')}
-          className={`py-2 px-4 focus:outline-none ${activeTab === 'departments' ? 'border-b-2 border-indigo-600 text-indigo-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+          onClick={openAdd}
+          className="group flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 hover:shadow-blue-600/40 hover:-translate-y-0.5 active:translate-y-0"
         >
-          Departments
-        </button>
-        <button
-          onClick={() => setActiveTab('classes')}
-          className={`py-2 px-4 focus:outline-none ${activeTab === 'classes' ? 'border-b-2 border-indigo-600 text-indigo-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          Classes
-        </button>
-        <button
-          onClick={() => setActiveTab('batches')}
-          className={`py-2 px-4 focus:outline-none ${activeTab === 'batches' ? 'border-b-2 border-indigo-600 text-indigo-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          Batches
+          <FiPlus className="text-lg transition-transform group-hover:rotate-90" />
+          Add New Class
         </button>
       </div>
 
-      {/* Render Department Tab */}
-      {activeTab === 'departments' && (
-        <>
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
-            <h2 className="text-lg font-semibold text-gray-700">All Departments</h2>
-            <button 
-              onClick={() => { setDeptForm({ id: '', name: '' }); setShowDeptModal(true); }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center justify-center shadow-sm hover:bg-indigo-700 sm:w-auto"
-            >
-              <AiOutlinePlus className="mr-2" /> Add Department
-            </button>
+      {/* Search & Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="relative flex-1 max-w-md">
+            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by class name or teacher..."
+              className="pl-10 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
+          <div className="w-full md:w-56">
+            <select
+              value={filterBoard}
+              onChange={(e) => setFilterBoard(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+            >
+              <option value="">All Boards</option>
+              {boards.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
-          <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
-            <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Classes</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+      {/* Table */}
+      {isLoading ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="py-4 px-6 font-semibold text-gray-700">Board</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700">Class Name</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700">Division</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700">Class Teacher</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 text-center">Capacity</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 text-center">Students</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 text-center">Status</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 w-28 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {isLoading ? (
-                  <tr><td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">Loading...</td></tr>
-                ) : departments.length === 0 ? (
-                  <tr><td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">No departments found</td></tr>
-                ) : departments.map(d => (
-                  <tr key={d.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">{d.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                        {getClassesCount(d.id)} Classes
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button 
-                        onClick={() => { setDeptForm({ id: d.id, name: d.name }); setShowDeptModal(true); }}
-                        className="text-indigo-600 hover:text-indigo-900 mx-2"
-                        title="Edit"
-                      ><AiOutlineEdit size={18} /></button>
-                      <button 
-                        onClick={() => handleDeleteDept(d.id)}
-                        className="text-red-600 hover:text-red-900 mx-2"
-                        title="Delete"
-                      ><AiOutlineDelete size={18} /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Render Classes Tab */}
-      {activeTab === 'classes' && (
-        <>
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
-            <h2 className="text-lg font-semibold text-gray-700">All Classes</h2>
-            <button 
-              onClick={() => { 
-                if (departments.length === 0) {
-                  showToast('Please create a department first', 'error');
-                  return;
-                }
-                setClassForm({ id: '', name: '', department_id: '' }); 
-                setShowClassModal(true); 
-              }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center justify-center shadow-sm hover:bg-indigo-700 sm:w-auto"
-            >
-              <AiOutlinePlus className="mr-2" /> Add Class
-            </button>
-          </div>
-
-          <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
-            <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {isLoading ? (
-                  <tr><td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">Loading...</td></tr>
-                ) : classes.length === 0 ? (
-                  <tr><td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">No classes found</td></tr>
-                ) : classes.map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">{c.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{c.department_name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button 
-                        onClick={() => { setClassForm({ id: c.id, name: c.name, department_id: c.department_id }); setShowClassModal(true); }}
-                        className="text-indigo-600 hover:text-indigo-900 mx-2"
-                        title="Edit"
-                      ><AiOutlineEdit size={18} /></button>
-                      <button 
-                        onClick={() => handleDeleteClass(c.id)}
-                        className="text-red-600 hover:text-red-900 mx-2"
-                        title="Delete"
-                      ><AiOutlineDelete size={18} /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Render Batches Tab */}
-      {activeTab === 'batches' && (
-        <>
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
-            <h2 className="text-lg font-semibold text-gray-700">All Batches</h2>
-            <button 
-              onClick={() => { 
-                if (classes.length === 0) {
-                  showToast('Please create a class first', 'error');
-                  return;
-                }
-                setBatchForm({ id: '', class_id: '', batch_name: '', roll_start: '', roll_end: '' }); 
-                setShowBatchModal(true); 
-              }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md flex items-center justify-center shadow-sm hover:bg-indigo-700 sm:w-auto"
-            >
-              <AiOutlinePlus className="mr-2" /> Add Batch
-            </button>
-          </div>
-
-          <div className="space-y-6">
-            {classes.filter(c => batches.some(b => b.class_id === c.id)).length === 0 && !isLoading && (
-               <div className="bg-white rounded-lg shadow p-8 text-center border border-dashed border-gray-200">
-                  <p className="text-gray-500">No batches have been assigned to any classes yet.</p>
-               </div>
-            )}
-
-            {classes.filter(c => batches.some(b => b.class_id === c.id)).map(cls => (
-              <div key={cls.id} className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
-                <div className="bg-slate-50 px-6 py-3 border-b border-gray-200 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                  <h3 className="font-bold text-indigo-900">{cls.name} <span className="text-xs text-slate-400 font-normal ml-2">({cls.department_name})</span></h3>
-                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                    {batches.filter(b => b.class_id === cls.id).length} Batches
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-white">
-                    <tr>
-                      <th className="px-6 py-2 text-left text-[10px] font-black text-gray-400 uppercase tracking-wider">Batch Name</th>
-                      <th className="px-6 py-2 text-left text-[10px] font-black text-gray-400 uppercase tracking-wider">Roll Range</th>
-                      <th className="px-6 py-2 text-right text-[10px] font-black text-gray-400 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-100">
-                    {batches.filter(b => b.class_id === cls.id).map(b => (
-                      <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">{b.batch_name}</td>
-                        <td className="px-6 py-3 whitespace-nowrap text-sm text-slate-500">
-                          <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-xs border border-slate-200">{b.roll_start} - {b.roll_end}</span>
-                        </td>
-                        <td className="px-6 py-3 whitespace-nowrap text-right text-sm font-medium">
-                          <button 
-                            onClick={() => { setBatchForm({ id: b.id, class_id: b.class_id, batch_name: b.batch_name, roll_start: b.roll_start.toString(), roll_end: b.roll_end.toString() }); setShowBatchModal(true); }}
-                            className="text-indigo-600 hover:text-indigo-900 mx-2"
+              <tbody>
+                {filteredClasses.length > 0 ? (
+                  filteredClasses.map((c) => (
+                    <tr key={c.id} className="border-b border-gray-100 hover:bg-blue-50/50 transition-colors">
+                      <td className="py-4 px-6">
+                        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 bg-indigo-50 w-fit px-3 py-1.5 rounded-lg border border-indigo-100">
+                          <FiAward className="text-indigo-400" />
+                          {c.board_name || getBoardName(c.board_id)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6 font-semibold text-gray-900">{c.name}</td>
+                      <td className="py-4 px-6 text-gray-600">
+                        {c.division ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                            {c.division}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-6">
+                        {c.class_teacher_name ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-purple-100 text-purple-700 font-bold text-xs">
+                              {c.class_teacher_name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-sm text-gray-700 font-medium">{c.class_teacher_name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-sm">Not assigned</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <span className="text-sm font-medium text-gray-700">
+                          {c.capacity || <span className="text-gray-400">-</span>}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 bg-gray-100 px-2.5 py-1 rounded-full">
+                          <FiUsers size={14} className="text-gray-500" />
+                          {getStudentCount(c.id)}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${c.status === 'active'
+                            ? 'bg-green-100 text-green-800 border border-green-200'
+                            : 'bg-gray-100 text-gray-600 border border-gray-200'
+                          }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${c.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                          {c.status === 'active' ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => openView(c)}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                            title="View Students"
+                          ><FiEye size={16} /></button>
+                          <button
+                            onClick={() => openEdit(c)}
+                            className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
                             title="Edit"
-                          ><AiOutlineEdit size={18} /></button>
-                          <button 
-                            onClick={() => handleDeleteBatch(b.id)}
-                            className="text-red-600 hover:text-red-900 mx-2"
+                          ><FiEdit2 size={16} /></button>
+                          <button
+                            onClick={() => handleDelete(c.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                             title="Delete"
-                          ><AiOutlineDelete size={18} /></button>
-                        </td>
-                      </tr>
+                          ><FiTrash2 size={16} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-gray-500">
+                      {classes.length === 0
+                        ? 'No classes found. Add one to get started.'
+                        : 'No classes match your filter.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setShowModal(false)}></div>
+          <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 bg-white/80 backdrop-blur flex items-center justify-between border-b border-slate-100 px-8 py-6 rounded-t-3xl">
+              <h2 className="text-xl font-bold text-slate-900">{form.id ? 'Edit Class' : 'Add New Class'}</h2>
+              <button onClick={() => setShowModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                <FiX className="text-xl" />
+              </button>
+            </div>
+            <form onSubmit={handleSave} className="p-8 space-y-5">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Board <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <FiAward className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select
+                    required
+                    value={form.board_id}
+                    onChange={(e) => {
+                      const board = boards.find(b => b.id === e.target.value);
+                      setForm({ ...form, board_id: e.target.value, board_name: board?.name || '' });
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none"
+                  >
+                    <option value="" disabled>Select Board</option>
+                    {boards.filter(b => b.status === 'active').map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
-                      </tbody>
-                </table>
+                  </select>
                 </div>
               </div>
-            ))}
 
-            {/* Floating Batches */}
-            {batches.filter(b => !classes.some(c => c.id === b.class_id)).length > 0 && (
-               <div className="bg-amber-50 rounded-lg shadow overflow-hidden border border-amber-200">
-                  <div className="bg-amber-100 px-6 py-3 border-b border-amber-200">
-                    <h3 className="font-bold text-amber-900">Unassigned Batches</h3>
-                  </div>
-                  <div className="overflow-x-auto">
-                   <table className="min-w-full divide-y divide-amber-200">
-                      <tbody className="bg-white divide-y divide-amber-50">
-                         {batches.filter(b => !classes.some(c => c.id === b.class_id)).map(b => (
-                            <tr key={b.id}>
-                               <td className="px-6 py-3 text-sm font-semibold">{b.batch_name}</td>
-                               <td className="px-6 py-3 text-sm text-slate-500">{b.roll_start} - {b.roll_end}</td>
-                               <td className="px-6 py-3 text-right">
-                                  <button onClick={() => handleDeleteBatch(b.id)} className="text-red-600"><AiOutlineDelete size={18} /></button>
-                               </td>
-                            </tr>
-                         ))}
-                      </tbody>
-                   </table>
-                  </div>
-               </div>
-            )}
-          </div>
-        </>
-      )}
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Class Name <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <FiBook className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    required
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                    placeholder="e.g. Class 10, Grade 5"
+                  />
+                </div>
+              </div>
 
-      {/* Dept Modal */}
-      {showDeptModal && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h2 className="text-xl font-semibold">{deptForm.id ? 'Edit Department' : 'Add Department'}</h2>
-              <button onClick={() => setShowDeptModal(false)} className="text-gray-400 hover:text-gray-600">
-                <AiOutlineClose size={24} />
-              </button>
-            </div>
-            <form onSubmit={handleSaveDept} className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Department Name <span className="text-red-500">*</span></label>
-                <input
-                  required
-                  type="text"
-                  value={deptForm.name}
-                  onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                  placeholder="e.g. Computer Science"
-                />
-              </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button type="button" onClick={() => setShowDeptModal(false)} className="px-4 py-2 text-gray-700 border rounded-md hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Class Modal */}
-      {showClassModal && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h2 className="text-xl font-semibold">{classForm.id ? 'Edit Class' : 'Add Class'}</h2>
-              <button onClick={() => setShowClassModal(false)} className="text-gray-400 hover:text-gray-600">
-                <AiOutlineClose size={24} />
-              </button>
-            </div>
-            <form onSubmit={handleSaveClass} className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Class Name <span className="text-red-500">*</span></label>
-                <input
-                  required
-                  type="text"
-                  value={classForm.name}
-                  onChange={(e) => setClassForm({ ...classForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                  placeholder="e.g. CSE-A"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Department <span className="text-red-500">*</span></label>
-                <select
-                  required
-                  value={classForm.department_id}
-                  onChange={(e) => setClassForm({ ...classForm, department_id: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600 bg-white"
-                >
-                  <option value="" disabled>Select Department</option>
-                  {departments.map(d => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button type="button" onClick={() => setShowClassModal(false)} className="px-4 py-2 text-gray-700 border rounded-md hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Batch Modal */}
-      {showBatchModal && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h2 className="text-xl font-semibold">{batchForm.id ? 'Edit Batch' : 'Add Batch'}</h2>
-              <button onClick={() => setShowBatchModal(false)} className="text-gray-400 hover:text-gray-600">
-                <AiOutlineClose size={24} />
-              </button>
-            </div>
-            <form onSubmit={handleSaveBatch} className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Class <span className="text-red-500">*</span></label>
-                <select
-                  required
-                  value={batchForm.class_id}
-                  onChange={(e) => setBatchForm({ ...batchForm, class_id: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600 bg-white"
-                >
-                  <option value="" disabled>Select Class</option>
-                  {classes.map(c => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.department_name})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Batch Name <span className="text-red-500">*</span></label>
-                <input
-                  required
-                  type="text"
-                  value={batchForm.batch_name}
-                  onChange={(e) => setBatchForm({ ...batchForm, batch_name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                  placeholder="e.g. Batch 1"
-                />
-              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Roll Start <span className="text-red-500">*</span></label>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Division</label>
                   <input
-                    required
-                    type="number"
-                    value={batchForm.roll_start}
-                    onChange={(e) => setBatchForm({ ...batchForm, roll_start: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                    placeholder="e.g. 1"
+                    type="text"
+                    value={form.division}
+                    onChange={(e) => setForm({ ...form, division: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                    placeholder="e.g. A, B"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Roll End <span className="text-red-500">*</span></label>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Capacity</label>
                   <input
-                    required
                     type="number"
-                    value={batchForm.roll_end}
-                    onChange={(e) => setBatchForm({ ...batchForm, roll_end: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                    placeholder="e.g. 30"
+                    min="0"
+                    value={form.capacity}
+                    onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                    placeholder="e.g. 60"
                   />
                 </div>
               </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button type="button" onClick={() => setShowBatchModal(false)} className="px-4 py-2 text-gray-700 border rounded-md hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save</button>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Class Teacher</label>
+                <div className="relative">
+                  <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select
+                    value={form.class_teacher_id}
+                    onChange={(e) => {
+                      const teacher = faculty.find(f => f.id === e.target.value);
+                      setForm({ ...form, class_teacher_id: e.target.value, class_teacher_name: teacher?.name || '' });
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none"
+                  >
+                    <option value="">Select Class Teacher</option>
+                    {faculty.map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Status</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, status: 'active' })}
+                    className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${form.status === 'active'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-2 ring-emerald-500/20'
+                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                  >
+                    <div className={`w-2 h-2 rounded-full ${form.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                    Active
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, status: 'inactive' })}
+                    className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${form.status === 'inactive'
+                        ? 'bg-slate-100 border-slate-300 text-slate-700 ring-2 ring-slate-500/20'
+                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                  >
+                    <div className={`w-2 h-2 rounded-full ${form.status === 'inactive' ? 'bg-slate-500' : 'bg-slate-300'}`}></div>
+                    Inactive
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-8 flex gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setShowModal(false)} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
+                <button type="submit" className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-blue-700 shadow-lg shadow-blue-600/20">
+                  {form.id ? 'Update Class' : 'Save Class'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* View Students Modal */}
+      {showViewModal && selectedClass && (
+        <ViewStudentsModal
+          classModel={selectedClass}
+          students={students.filter(s => s.class_id === selectedClass.id)}
+          onClose={() => { setShowViewModal(false); setSelectedClass(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ViewStudentsModal({ classModel, students, onClose }: { classModel: ClassModel; students: Student[]; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
+      <div className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6 bg-slate-50/50">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white font-bold text-2xl shadow-lg shadow-blue-600/20">
+              {classModel.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">
+                {classModel.name} {classModel.division && `- ${classModel.division}`}
+              </h2>
+              <div className="text-slate-500 text-sm font-medium mt-1">
+                <span className="flex items-center gap-1.5"><FiAward className="text-slate-400" /> {classModel.board_name}</span>
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors bg-white shadow-sm border border-slate-200">
+            <FiX className="text-xl" />
+          </button>
+        </div>
+
+        <div className="px-8 py-5 border-b bg-slate-50/50 grid grid-cols-2 sm:grid-cols-3 gap-6">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Class Teacher</div>
+            <p className="font-semibold text-slate-900">{classModel.class_teacher_name || 'Not assigned'}</p>
+          </div>
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Capacity</div>
+            <p className="font-semibold text-slate-900">{classModel.capacity || 'Not set'}</p>
+          </div>
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Students Enrolled</div>
+            <p className="font-semibold text-slate-900">{students.length}</p>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-8">
+          {students.length > 0 ? (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-xs font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="px-6 py-4">Roll No</th>
+                    <th className="px-6 py-4">Student</th>
+                    <th className="px-6 py-4">Email</th>
+                    <th className="px-6 py-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {students.map((student) => (
+                    <tr key={student.uid} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <span className="font-mono text-sm font-medium text-slate-700 bg-slate-100 px-2.5 py-1 rounded border border-slate-200">
+                          {student.roll_no}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-sm">
+                            {student.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="font-semibold text-slate-900">{student.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 font-medium">{student.email}</td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${student.status === 'active'
+                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                            : 'bg-slate-100 text-slate-500 border border-slate-200'
+                          }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${student.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                          {student.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-16 text-slate-500">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 mb-4">
+                <FiUsers className="text-2xl text-slate-400" />
+              </div>
+              <p className="text-slate-900 font-semibold mb-1">No students assigned yet</p>
+              <p className="text-sm">Students will appear here when assigned to this class.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-100 px-8 py-5 bg-slate-50/50 flex justify-end">
+          <button onClick={onClose} className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 transition-colors shadow-md">
+            Close Details
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,910 +1,710 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { FiClock, FiEdit2, FiEye, FiLoader, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUpload } from 'react-icons/fi';
+import * as XLSX from 'xlsx';
+
+import type { StudentForm, StudentRow, ImportRow } from '../types/student';
+import { EMPTY_STUDENT_FORM, REQUIRED_IMPORT_FIELDS, ALL_STUDENT_STATUSES } from '../types/student';
+import type { AcademicYear, Board, ClassModel } from '../types/board';
 import {
-  FiPlus, FiSearch, FiEdit2, FiTrash2, FiEye,
-  FiUser, FiMail, FiBriefcase, FiX, FiCheck, FiAlertCircle,
-  FiClock, FiBook, FiUsers, FiCopy, FiLoader,
-} from 'react-icons/fi';
-import { collection, query, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, where, serverTimestamp } from 'firebase/firestore';
-import { db, firebaseConfig } from '../firebase';
-import { initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+  fullName,
+  fetchAllStudentData,
+  buildRecordsByStudent,
+  buildStudentRows,
+  createStudent,
+  updateStudent,
+  deleteStudent,
+  promoteStudents,
+  markStudentPassedOut,
+  importValidStudents,
+  resolveGender,
+  resolveAcademicYear,
+  resolveBoard,
+  resolveClass,
+} from '../services/studentService';
+import {
+  StudentAvatar,
+  StudentStatusBadge,
+  StudentStatsPanel,
+  StudentFormModal,
+  StudentProfileModal,
+  StudentHistoryModal,
+  StudentImportModal,
+  StudentPromotionModal,
+  Toast,
+  Select,
+} from '../components/student';
 
-interface Student {
-  uid: string;
-  name: string;
-  roll_no: string;
-  email: string;
-  class_id: string;
-  class_name: string;
-  department_id: string;
-  department_name: string;
-  batch_id?: string;
-  batch_name?: string;
-  role: string;
-  status: 'active' | 'inactive';
-  created_at: unknown;
-}
-
-interface Department {
-  id: string;
-  name: string;
-}
-
-interface ClassModel {
-  id: string;
-  name: string;
-  department_id: string;
-}
-
-interface Batch {
-  id: string;
-  class_id: string;
-  batch_name: string;
-  roll_start: number;
-  roll_end: number;
-}
-
-interface AttendanceRecord {
-  id: string;
-  student_id: string;
-  attendance_session_id?: string;
-  subject?: string;
-  class?: string;
-  date: string;
-  status: 'present' | 'absent';
-  time?: unknown;
-}
-
-interface AttendanceRow {
-  id: string;
-  date: string;
-  subject_name: string;
-  slot_time: string;
-  status: 'present' | 'absent';
-}
-
-type StudentInput = {
-  uid: string;
-  name?: string;
-  roll_no?: string;
-  email?: string;
-  class_id?: string;
-  class_name?: string;
-  department_id?: string;
-  department_name?: string;
-  batch_id?: string | null;
-  batch_name?: string | null;
-  role?: string;
-  status?: 'active' | 'inactive';
-  created_at?: unknown;
-};
-
-const normalizeStudent = (student: StudentInput): Student => ({
-  uid: student.uid,
-  name: student.name || '',
-  roll_no: student.roll_no || '',
-  email: student.email || '',
-  class_id: student.class_id || '',
-  class_name: student.class_name || '',
-  department_id: student.department_id || '',
-  department_name: student.department_name || '',
-  batch_id: student.batch_id || '',
-  batch_name: student.batch_name || '',
-  role: student.role || 'student',
-  status: student.status || 'active',
-  created_at: student.created_at,
-});
-
+const normalize = (value: unknown) => String(value ?? '').trim();
 
 export function StudentsPage() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [allClasses, setAllClasses] = useState<ClassModel[]>([]); const [batches, setBatches] = useState<Batch[]>([]); const [isLoading, setIsLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterClass, setFilterClass] = useState('');
-
-  // Modals state
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-
-  // View Details extra state
-  const [studentAttendance, setStudentAttendance] = useState<AttendanceRow[]>([]);
-  const [loadingAttendance, setLoadingAttendance] = useState(false);
-
-  // Form State
-  const [formData, setFormData] = useState({
-    name: '',
-    roll_no: '',
-    email: '',
-    class_id: '',
-    class_name: '',
-    department_id: '',
-    department_name: '',
-    batch_id: '',
-    batch_name: '',
-    status: 'active' as 'active' | 'inactive'
-  });
-
-  const [createdPassword, setCreatedPassword] = useState<string | null>(null);
-  const [recentlyCreatedStudent, setRecentlyCreatedStudent] = useState<Student | null>(null);
+  const [allStudents, setAllStudents] = useState<any[]>([]);
+  const [academicRecords, setAcademicRecords] = useState<any[]>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [classes, setClasses] = useState<ClassModel[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Reference to avoid unused variable build warning
-  if (recentlyCreatedStudent) {
-    console.debug('Recently created student:', recentlyCreatedStudent.name);
-  }
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+  const [filterBoard, setFilterBoard] = useState('');
+  const [filterClass, setFilterClass] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
-  // --- Helpers ---
+  const [activeModal, setActiveModal] = useState<'add' | 'edit' | 'view' | 'history' | 'import' | 'promotion' | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
+  const [form, setForm] = useState<StudentForm>(EMPTY_STUDENT_FORM);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [promotion, setPromotion] = useState({ fromYearId: '', toYearId: '', boardId: '', classId: '', targetClassId: '' });
+
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast('Copied to clipboard!', 'success');
-  };
-
-  const fetchStudents = async () => {
+  const fetchData = async () => {
     setIsLoading(true);
     try {
-      const q = query(collection(db, 'students'), where('role', '==', 'student'));
-      const querySnapshot = await getDocs(q);
-      const studentsData: Student[] = [];
-      querySnapshot.forEach((docSnap) => {
-        studentsData.push(normalizeStudent({ uid: docSnap.id, ...docSnap.data() }));
-      });
-      setStudents(studentsData);
+      const data = await fetchAllStudentData();
+      setAllStudents(data.students);
+      setAcademicRecords(data.academicRecords);
+      setAcademicYears(data.academicYears);
+      setBoards(data.boards);
+      setClasses(data.classes);
     } catch (error) {
-      console.error("Error fetching students:", error);
-      showToast('Failed to load students data', 'error');
+      console.error(error);
+      showToast('Failed to load student management data.', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStudents();
-
-    // Fetch departments and classes
-    const fetchMetadata = async () => {
-      try {
-        const dSnap = await getDocs(collection(db, 'departments'));
-        setDepartments(dSnap.docs.map(d => ({ id: d.id, name: d.data().name })));
-
-        const cSnap = await getDocs(collection(db, 'classes'));
-        setAllClasses(cSnap.docs.map(c => ({
-          id: c.id,
-          name: c.data().name,
-          department_id: c.data().department_id
-        })));
-
-        const bSnap = await getDocs(collection(db, 'batches'));
-        setBatches(bSnap.docs.map(b => ({
-          id: b.id,
-          class_id: b.data().class_id,
-          batch_name: b.data().batch_name,
-          roll_start: b.data().roll_start,
-          roll_end: b.data().roll_end
-        })));
-      } catch (err) {
-        console.error("Error fetching metadata", err);
-      }
-    };
-    fetchMetadata();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchData();
   }, []);
 
-  // Automatic Batch Calculation
   useEffect(() => {
-    if (formData.class_id && formData.roll_no) {
-      const rollNum = parseInt(formData.roll_no.replace(/\D/g, ''), 10);
-      if (!isNaN(rollNum)) {
-        const matchingBatch = batches.find(b =>
-          b.class_id === formData.class_id &&
-          rollNum >= b.roll_start &&
-          rollNum <= b.roll_end
-        );
-        if (matchingBatch) {
-          if (formData.batch_id !== matchingBatch.id) {
-            setFormData(prev => ({ ...prev, batch_id: matchingBatch.id, batch_name: matchingBatch.batch_name }));
-          }
-        } else {
-          if (formData.batch_id !== '') {
-            setFormData(prev => ({ ...prev, batch_id: '', batch_name: '' }));
-          }
-        }
-      }
+    const activeYear = academicYears.find((y) => y.isActive);
+    if (activeYear && !filterYear) {
+      setFilterYear(activeYear.id);
+      setPromotion((prev) => ({ ...prev, fromYearId: activeYear.id }));
     }
-  }, [formData.class_id, formData.roll_no, batches]);
+  }, [academicYears, filterYear]);
 
-  const fetchAttendance = async (studentId: string) => {
-    setLoadingAttendance(true);
-    try {
-      const q = query(collection(db, 'attendance'), where('student_id', '==', studentId));
-      const snapshot = await getDocs(q);
-      const raw: AttendanceRecord[] = [];
-      snapshot.forEach(docSnap => raw.push({ id: docSnap.id, ...docSnap.data() } as AttendanceRecord));
+  const recordsByStudent = useMemo(() => buildRecordsByStudent(academicRecords), [academicRecords]);
+  const activeYear = academicYears.find((y) => y.isActive);
 
-      // Collect unique session IDs
-      const sessionIds = Array.from(new Set(raw.map(r => r.attendance_session_id).filter((x): x is string => !!x)));
+  const rows = useMemo<StudentRow[]>(
+    () => buildStudentRows(allStudents, recordsByStudent, filterYear),
+    [allStudents, recordsByStudent, filterYear]
+  );
 
-      const sessionsMap: Record<string, any> = {};
-      if (sessionIds.length > 0) {
-        const promises = sessionIds.map(id => getDoc(doc(db, 'attendance_sessions', id)));
-        const snaps = await Promise.all(promises);
-        snaps.forEach(s => {
-          if (s.exists()) sessionsMap[s.id] = s.data();
-        });
-      }
+  const filteredRows = useMemo(() =>
+    rows.filter((student) => {
+      const record = student.currentRecord;
+      const term = searchTerm.toLowerCase();
+      const matchesSearch =
+        !term ||
+        student.studentId?.toLowerCase().includes(term) ||
+        student.grNumber?.toLowerCase().includes(term) ||
+        fullName(student).toLowerCase().includes(term) ||
+        student.parentMobile?.toLowerCase().includes(term);
 
-      const merged: AttendanceRow[] = raw.map(r => {
-        const session = r.attendance_session_id ? sessionsMap[r.attendance_session_id] : null;
-        const subject_name = session?.subject_name || r.subject || 'Unknown Subject';
-        const start = session?.start_time;
-        const end = session?.end_time;
-        const slot_time = (start && end) ? formatSlotTime(start, end) : 'Time unavailable';
-        return {
-          id: r.id,
-          date: r.date,
-          subject_name,
-          slot_time,
-          status: r.status,
-        };
-      });
-
-      setStudentAttendance(merged);
-    } catch (error) {
-      console.error("Error fetching attendance:", error);
-    } finally {
-      setLoadingAttendance(false);
-    }
-  };
-
-  const formatSlotTime = (start: string, end: string) => {
-    // Accepts 'HH:MM' or 'HH:MM:SS' or already formatted times
-    const fmt = (t: string) => {
-      if (!t) return '';
-      if (/[ap]m/i.test(t)) return t;
-      const parts = t.split(':');
-      let hh = parseInt(parts[0], 10);
-      const mm = parts[1] || '00';
-      const ampm = hh >= 12 ? 'PM' : 'AM';
-      hh = hh % 12 || 12;
-      return `${hh}:${mm} ${ampm}`;
-    };
-    const s = fmt(start);
-    const e = fmt(end);
-    return s && e ? `${s} - ${e}` : 'Time unavailable';
-  };
-
-  const handleAddSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      const newPassword = "student@123";
-
-      // Step 1: Create user in Firebase Auth using a secondary app
-      const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp' + Date.now());
-      const secondaryAuth = getAuth(secondaryApp);
-
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, newPassword);
-      const uid = userCredential.user.uid;
-
-      await secondaryAuth.signOut();
-
-      // Step 2 & 3: Save to Firestore
-      const studentData = {
-        name: formData.name,
-        roll_no: formData.roll_no,
-        email: formData.email,
-        class_id: formData.class_id,
-        class_name: formData.class_name,
-        department_id: formData.department_id,
-        department_name: formData.department_name,
-        batch_id: formData.batch_id || null,
-        batch_name: formData.batch_name || null,
-        role: 'student',
-        status: formData.status,
-        created_at: serverTimestamp()
-      };
-
-      await setDoc(doc(db, 'students', uid), studentData);
-
-      const newStudent: Student = normalizeStudent({ uid, ...studentData });
-      setStudents([...students, newStudent]);
-
-      setRecentlyCreatedStudent(newStudent);
-      setCreatedPassword(newPassword);
-      showToast('Student account created successfully!', 'success');
-    } catch (error: unknown) {
-      console.error("Error adding student:", error);
-      showToast((error as Error).message || 'Error creating student account', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStudent) return;
-    setIsSubmitting(true);
-    try {
-      const targetDoc = doc(db, 'students', selectedStudent.uid);
-      await updateDoc(targetDoc, {
-        name: formData.name,
-        roll_no: formData.roll_no,
-        class_id: formData.class_id,
-        class_name: formData.class_name,
-        department_id: formData.department_id,
-        department_name: formData.department_name,
-        batch_id: formData.batch_id || null,
-        batch_name: formData.batch_name || null,
-        status: formData.status
-      });
-
-      const updatedList = students.map((s) =>
-        s.uid === selectedStudent.uid
-          ? { ...s, name: formData.name, roll_no: formData.roll_no, class_id: formData.class_id, class_name: formData.class_name, department_id: formData.department_id, department_name: formData.department_name, batch_id: formData.batch_id, batch_name: formData.batch_name, status: formData.status }
-          : s
+      const matchesYear = !filterYear || student.records.some(
+        (r) => r.academicYearId === filterYear && (r.status === 'Active' || r.status === 'Passed Out')
       );
-      setStudents(updatedList);
-      setIsEditModalOpen(false);
-      showToast('Student updated successfully!', 'success');
-    } catch (error: unknown) {
-      console.error("Error updating student:", error);
-      showToast('Failed to update student', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+      const matchesBoard = !filterBoard || (record?.boardId === filterBoard && record?.academicYearId === filterYear);
+      const matchesClass = !filterClass || (record?.classId === filterClass && record?.academicYearId === filterYear);
 
-  const handleDelete = async (uid: string) => {
-    if (window.confirm('Are you sure you want to delete this student (This only deletes Firestore document)?')) {
-      try {
-        await deleteDoc(doc(db, 'students', uid));
-        setStudents(students.filter((s) => s.uid !== uid));
-        showToast('Student deleted successfully!', 'success');
-      } catch (error: any) {
-        console.error("Error deleting student:", error);
-        showToast('Failed to delete student', 'error');
-      }
-    }
-  };
+      return (
+        matchesSearch &&
+        matchesYear &&
+        matchesBoard &&
+        matchesClass &&
+        (!filterStatus || student.status === filterStatus)
+      );
+    }),
+    [rows, searchTerm, filterYear, filterBoard, filterClass, filterStatus]
+  );
 
-  const openView = (student: Student) => {
-    setSelectedStudent(student);
-    fetchAttendance(student.uid);
-    setIsViewModalOpen(true);
-  };
-
-  const openEdit = (student: Student) => {
-    setSelectedStudent(student);
-    setFormData({
-      name: student.name,
-      roll_no: student.roll_no,
-      email: student.email,
-      class_id: student.class_id,
-      class_name: student.class_name,
-      department_id: student.department_id,
-      department_name: student.department_name,
-      batch_id: student.batch_id || '',
-      batch_name: student.batch_name || '',
-      status: student.status
+  const stats = useMemo(() => {
+    const byBoard = new Map<string, number>();
+    const byClass = new Map<string, number>();
+    const byYear = new Map<string, number>();
+    rows.forEach((student) => {
+      const record = student.currentRecord;
+      if (!record) return;
+      byBoard.set(record.boardName, (byBoard.get(record.boardName) || 0) + 1);
+      byClass.set(record.className, (byClass.get(record.className) || 0) + 1);
+      byYear.set(record.academicYearName, (byYear.get(record.academicYearName) || 0) + 1);
     });
-    setIsEditModalOpen(true);
-  };
+    return {
+      total: allStudents.length,
+      active: allStudents.filter((s: any) => s.status === 'Active').length,
+      promoted: allStudents.filter((s: any) => s.status === 'Promoted').length,
+      byBoard: Array.from(byBoard.entries()),
+      byClass: Array.from(byClass.entries()),
+      byYear: Array.from(byYear.entries()),
+    };
+  }, [rows, allStudents]);
+
+  const filteredBoards = boards.filter((b) => b.status === 'active');
+  const filteredClassesForForm = classes.filter(
+    (c) =>
+      c.status === 'active' &&
+      (!form.boardId || c.board_id === form.boardId)
+  );
+  const promotionClasses = classes.filter(
+    (c) =>
+      c.status === 'active' &&
+      (!promotion.boardId || c.board_id === promotion.boardId)
+  );
+  const promotionStudents = useMemo(() => {
+    if (!promotion.fromYearId || !promotion.boardId || !promotion.classId) return [];
+    return rows.filter((s) =>
+      s.status !== 'Passed Out' && s.status !== 'Transferred' &&
+      s.records.some(
+        (r) =>
+          r.academicYearId === promotion.fromYearId &&
+          r.boardId === promotion.boardId &&
+          r.classId === promotion.classId &&
+          r.status === 'Active'
+      )
+    );
+  }, [rows, promotion.fromYearId, promotion.boardId, promotion.classId]);
+
+  const pendingPromotionCount = useMemo(() => {
+    if (!activeYear) return 0;
+    const activeYearIndex = academicYears.findIndex((y) => y.id === activeYear.id);
+    const prevYear = academicYears[activeYearIndex + 1];
+    if (!prevYear) return 0;
+    return rows.filter((s) =>
+      s.records.some(
+        (r) =>
+          r.academicYearId === prevYear.id &&
+          r.status === 'Active'
+      ) && !s.records.some(
+        (r) =>
+          r.academicYearId === activeYear.id &&
+          r.status === 'Active'
+      ) && s.status !== 'Passed Out'
+    ).length;
+  }, [rows, academicYears, activeYear]);
 
   const openAdd = () => {
-    setFormData({ name: '', roll_no: '', email: '', class_id: '', class_name: '', department_id: '', department_name: '', batch_id: '', batch_name: '', status: 'active' });
-    setCreatedPassword(null);
-    setRecentlyCreatedStudent(null);
-    setIsAddModalOpen(true);
+    setForm({ ...EMPTY_STUDENT_FORM, academicYearId: activeYear?.id || '' });
+    setSelectedStudent(null);
+    setActiveModal('add');
   };
 
-  // Filter students
-  const filteredStudents = useMemo(() => {
-    return students.filter(student => {
-      const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.roll_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.email.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesClass = filterClass ? student.class_name === filterClass : true;
-      return matchesSearch && matchesClass;
+  const openEdit = (student: StudentRow) => {
+    const record = student.currentRecord;
+    setSelectedStudent(student);
+    setForm({
+      grNumber: student.grNumber || '',
+      firstName: student.firstName || '',
+      middleName: student.middleName || '',
+      lastName: student.lastName || '',
+      gender: student.gender || '',
+      dateOfBirth: student.dateOfBirth || '',
+      bloodGroup: student.bloodGroup || '',
+      aadhaarNumber: student.aadhaarNumber || '',
+      photoUrl: student.photoUrl || '',
+      fatherName: student.fatherName || '',
+      motherName: student.motherName || '',
+      parentMobile: student.parentMobile || '',
+      parentAlternateMobile: student.parentAlternateMobile || '',
+      parentEmail: student.parentEmail || '',
+      occupation: student.occupation || '',
+      address: student.address || '',
+      city: student.city || '',
+      state: student.state || '',
+      pincode: student.pincode || '',
+      status: student.status || 'Active',
+      academicYearId: record?.academicYearId || activeYear?.id || '',
+      boardId: record?.boardId || '',
+      classId: record?.classId || '',
+      division: record?.division || '',
+      rollNumber: record?.rollNumber || '',
+      admissionDate: record?.admissionDate || new Date().toISOString().slice(0, 10),
+      academicStatus: record?.status || 'Active',
+      remarks: record?.remarks || '',
     });
-  }, [students, searchTerm, filterClass]);
+    setActiveModal('edit');
+  };
 
-  const uniqueClasses = Array.from(new Set(students.map(s => s.class_name)));
+  const saveStudent = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    try {
+      if (activeModal === 'edit' && selectedStudent) {
+        await updateStudent(selectedStudent, form);
+        showToast('Student updated successfully.', 'success');
+      } else {
+        await createStudent(form, allStudents);
+        showToast('Student created with academic record.', 'success');
+      }
+      setActiveModal(null);
+      fetchData();
+    } catch (error: any) {
+      console.error(error);
+      showToast(error.message || 'Failed to save student.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (student: StudentRow) => {
+    if (!window.confirm(`Delete ${fullName(student)}? Academic history will also be removed.`)) return;
+    try {
+      await deleteStudent(student);
+      showToast('Student deleted.', 'success');
+      fetchData();
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to delete student.', 'error');
+    }
+  };
+
+  const parseImportFile = async (file: File) => {
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array' });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rowsData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+    const existingGr = new Set(allStudents.map((s: any) => s.grNumber?.toLowerCase()));
+    const fileGr = new Set<string>();
+
+    const activeYear = academicYears.find((y) => y.isActive);
+
+    const parsed: ImportRow[] = rowsData.map((row, index) => {
+      const rawBoardName = normalize(row.boardName || row['Board Name'] || row.board || row.Board);
+      const rawClassName = normalize(row.className || row['Class Name'] || row.class || row.Class);
+      const rawYearName = normalize(row.academicYearName || row['Academic Year Name'] || row['Academic Year'] || row.year || row.Year);
+
+      let boardId = normalize(row.boardId || row['Board ID']);
+      let classId = normalize(row.classId || row['Class ID']);
+      let academicYearId = normalize(row.academicYearId || row['Academic Year ID']);
+
+      if (academicYearId && !academicYears.some((y) => y.id === academicYearId)) {
+        const matched = resolveAcademicYear(academicYearId, academicYears);
+        academicYearId = matched ? matched.id : academicYearId;
+      }
+      if (!academicYearId && rawYearName) {
+        const matched = resolveAcademicYear(rawYearName, academicYears);
+        if (matched) academicYearId = matched.id;
+      }
+      if (!academicYearId && activeYear) {
+        academicYearId = activeYear.id;
+      }
+
+      if (boardId && !boards.some((b) => b.id === boardId)) {
+        const matched = resolveBoard(boardId, boards);
+        boardId = matched ? matched.id : boardId;
+      }
+      if (!boardId && rawBoardName) {
+        const matched = resolveBoard(rawBoardName, boards);
+        if (matched) boardId = matched.id;
+      }
+
+      if (classId && !classes.some((c) => c.id === classId)) {
+        const filtered = classes.filter((c) => !boardId || c.board_id === boardId);
+        const matched = resolveClass(classId, filtered);
+        classId = matched ? matched.id : classId;
+      }
+      if (!classId && rawClassName) {
+        const filtered = classes.filter((c) => !boardId || c.board_id === boardId);
+        const matched = resolveClass(rawClassName, filtered);
+        if (matched) classId = matched.id;
+      }
+
+      const rawGender = normalize(row.gender || row.Gender);
+      const gender = rawGender ? resolveGender(rawGender) : '';
+
+      const item: ImportRow = {
+        rowNumber: index + 2,
+        grNumber: normalize(row.grNumber || row.GRNumber || row['GR Number'] || row['Admission Number']),
+        firstName: normalize(row.firstName || row['First Name']),
+        middleName: normalize(row.middleName || row['Middle Name']),
+        lastName: normalize(row.lastName || row['Last Name']),
+        gender,
+        dateOfBirth: normalize(row.dateOfBirth || row.DOB || row['Date of Birth']),
+        bloodGroup: normalize(row.bloodGroup || row['Blood Group']),
+        aadhaarNumber: normalize(row.aadhaarNumber || row.Aadhaar),
+        fatherName: normalize(row.fatherName || row['Father Name']),
+        motherName: normalize(row.motherName || row['Mother Name']),
+        parentMobile: normalize(row.parentMobile || row['Parent Mobile']),
+        parentAlternateMobile: normalize(row.parentAlternateMobile || row['Alternate Mobile']),
+        parentEmail: normalize(row.parentEmail || row['Parent Email']),
+        occupation: normalize(row.occupation || row.Occupation),
+        address: normalize(row.address || row.Address),
+        city: normalize(row.city || row.City),
+        state: normalize(row.state || row.State),
+        pincode: normalize(row.pincode || row.Pincode),
+        academicYearId,
+        boardId,
+        classId,
+        division: normalize(row.division || row.Division),
+        rollNumber: normalize(row.rollNumber || row['Roll Number']),
+        admissionDate:
+          normalize(row.admissionDate || row['Admission Date']) || new Date().toISOString().slice(0, 10),
+        remarks: normalize(row.remarks || row.Remarks),
+        status: 'Active',
+        academicStatus: 'Active',
+        errors: [],
+      };
+
+      REQUIRED_IMPORT_FIELDS.forEach((field) => {
+        if (!item[field]) item.errors.push(`Missing ${field}`);
+      });
+      const grKey = String(item.grNumber || '').toLowerCase();
+      if (grKey && existingGr.has(grKey)) item.errors.push('Duplicate GR number already exists');
+      if (grKey && fileGr.has(grKey)) item.errors.push('Duplicate GR number in file');
+      if (grKey) fileGr.add(grKey);
+      if (!item.boardId && rawBoardName) item.errors.push(`Board "${rawBoardName}" not found in system`);
+      if (!item.classId && rawClassName) item.errors.push(`Class "${rawClassName}" not found in system`);
+      if (item.boardId && !boards.some((b) => b.id === item.boardId)) item.errors.push(`Board "${boardId}" not found in system`);
+      if (item.classId && !classes.some((c) => c.id === item.classId)) item.errors.push(`Class "${classId}" not found in system`);
+      if (!item.academicYearId) item.errors.push('Academic Year not found');
+      return item;
+    });
+    setImportRows(parsed);
+  };
+
+  const handleImportValid = async () => {
+    const validRows = importRows.filter((row) => row.errors.length === 0) as StudentForm[];
+    if (!validRows.length) {
+      showToast('No valid rows to import.', 'error');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await importValidStudents(validRows);
+      showToast(`${validRows.length} students imported successfully.`, 'success');
+      setActiveModal(null);
+      setImportRows([]);
+      fetchData();
+    } catch (error: any) {
+      console.error('Import error:', error);
+      showToast(error.message || 'Import failed. Check console for details.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    const headers = [
+      'grNumber', 'firstName', 'middleName', 'lastName', 'gender', 'dateOfBirth',
+      'bloodGroup', 'aadhaarNumber', 'fatherName', 'motherName', 'parentMobile',
+      'parentAlternateMobile', 'parentEmail', 'occupation', 'address', 'city',
+      'state', 'pincode', 'academicYearName', 'boardName', 'className', 'division',
+      'rollNumber', 'admissionDate', 'remarks',
+    ];
+    const sampleRow = [
+      'GR001', 'Rahul', 'Kumar', 'Sharma', 'Male', '2010-05-15',
+      'A+', '', 'Suresh Sharma', 'Priya Sharma', '9876543210',
+      '', '', 'Farmer', '123 Main St', 'Mumbai', 'Maharashtra', '400001',
+      '2025-26', 'CBSE', 'Class 10', 'A',
+      '101', '2025-04-01', '',
+    ];
+    const csv = `${headers.join(',')}\n${sampleRow.join(',')}\n`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'student-import-template.csv';
+    link.click();
+  };
+
+  const handlePromote = async () => {
+    if (promotion.fromYearId && promotion.toYearId && promotion.fromYearId === promotion.toYearId) {
+      showToast('Cannot promote within the same academic year. Select a different target year.', 'error');
+      return;
+    }
+    const toYear = academicYears.find((y) => y.id === promotion.toYearId);
+    const currentClass = classes.find((c) => c.id === promotion.classId);
+    const targetClass = classes.find((c) => c.id === promotion.targetClassId);
+    if (!toYear || !currentClass || !targetClass || promotionStudents.length === 0) {
+      showToast('Select source, target year, target class, and eligible students.', 'error');
+      return;
+    }
+    try {
+      await promoteStudents(promotionStudents, currentClass, toYear, promotion.boardId, targetClass, promotion.fromYearId);
+      showToast(`${promotionStudents.length} students promoted successfully.`, 'success');
+      setActiveModal(null);
+      fetchData();
+    } catch (error: any) {
+      console.error(error);
+      showToast(error.message || 'Promotion failed.', 'error');
+    }
+  };
+
+  const handleMarkPassedOut = async (student: StudentRow) => {
+    if (!window.confirm(`Mark ${fullName(student)} as passed out?`)) return;
+    try {
+      await markStudentPassedOut(student);
+      showToast('Student marked as passed out.', 'success');
+      fetchData();
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to mark passed out.', 'error');
+    }
+  };
+
+  const handleMarkPassedOutFromPromotion = async () => {
+    if (promotionStudents.length === 0) return;
+    if (!window.confirm(`Mark ${promotionStudents.length} student${promotionStudents.length !== 1 ? 's' : ''} as passed out?`)) return;
+    try {
+      for (const student of promotionStudents) {
+        await markStudentPassedOut(student);
+      }
+      showToast(`${promotionStudents.length} students marked as passed out.`, 'success');
+      setActiveModal(null);
+      fetchData();
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to mark students as passed out.', 'error');
+    }
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Toast Notification */}
-      {toast && (
-        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 rounded-xl bg-slate-900/95 backdrop-blur-sm px-6 py-4 text-white shadow-2xl animate-in slide-in-from-top-5">
-          {toast.type === 'success' ? <FiCheck className="text-emerald-400 text-xl" /> : <FiAlertCircle className="text-red-400 text-xl" />}
-          <p className="font-medium">{toast.message}</p>
+      {toast && <Toast message={toast.message} type={toast.type} />}
+
+      {/* Header */}
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Student Management</h1>
+          <p className="mt-2 text-slate-500 font-medium">
+            Permanent profiles, academic history, import, promotion, and alumni records.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => setActiveModal('promotion')}
+            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-100 flex items-center gap-2 transition-colors"
+          >
+            <FiRefreshCw /> Promotions
+          </button>
+          <button
+            onClick={() => setActiveModal('import')}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+          >
+            <FiUpload /> Bulk Import
+          </button>
+          <button
+            onClick={openAdd}
+            className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 flex items-center gap-2 transition-colors"
+          >
+            <FiPlus /> Add Student
+          </button>
+        </div>
+      </div>
+
+      {/* Stats Panel */}
+      <StudentStatsPanel stats={stats} />
+
+      {/* Promotion Reminder Banner */}
+      {pendingPromotionCount > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <FiRefreshCw className="text-amber-600" />
+            <div>
+              <p className="font-bold text-amber-900">
+                {pendingPromotionCount} student{pendingPromotionCount !== 1 ? 's' : ''} need promotion to {activeYear?.name}
+              </p>
+              <p className="text-sm text-amber-700">
+                Students from the previous academic year have not been promoted yet.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveModal('promotion')}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 transition-colors"
+          >
+            Promote Now
+          </button>
         </div>
       )}
 
-      {/* Header Section */}
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Student Directory</h1>
-          <p className="mt-2 text-slate-500 font-medium">Manage student accounts and attendance metrics</p>
-        </div>
-        <button
-          onClick={openAdd}
-          className="group flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 hover:shadow-blue-600/40 hover:-translate-y-0.5 active:translate-y-0"
-        >
-          <FiPlus className="text-lg transition-transform group-hover:rotate-90" />
-          Add New Student
-        </button>
-      </div>
-
-      {/* Search & Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg" />
-          <input
-            type="text"
-            placeholder="Search by name, roll no, or email..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-white py-4 pl-12 pr-4 text-slate-900 shadow-sm outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder:text-slate-400 font-medium"
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="relative lg:col-span-2">
+            <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search ID, GR, name, mobile..."
+              className="pl-10 w-full border border-gray-300 rounded-lg py-2.5 px-4 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+            />
+          </div>
+          <Select
+            value={filterYear}
+            onChange={setFilterYear}
+            options={academicYears.map((y) => [y.id, `${y.name}${y.isActive ? ' (Active)' : ''}`])}
+            placeholder="All Academic Years"
+          />
+          <Select
+            value={filterBoard}
+            onChange={setFilterBoard}
+            options={boards.map((b) => [b.id, b.name])}
+            placeholder="All Boards"
+          />
+          <Select
+            value={filterClass}
+            onChange={setFilterClass}
+            options={classes.map((c) => [c.id, `${c.name}${c.division ? ` - ${c.division}` : ''}`])}
+            placeholder="All Classes"
+          />
+          <Select
+            value={filterStatus}
+            onChange={setFilterStatus}
+            options={ALL_STUDENT_STATUSES.map((s) => [s, s])}
+            placeholder="All Status"
           />
         </div>
-        <div className="w-full sm:w-64">
-          <select
-            value={filterClass}
-            onChange={(e) => setFilterClass(e.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-white py-4 px-4 text-slate-900 shadow-sm outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 font-medium appearance-none cursor-pointer"
-          >
-            <option value="">All Classes</option>
-            {uniqueClasses.map(cls => (
-              <option key={cls} value={cls}>{cls}</option>
-            ))}
-          </select>
-        </div>
       </div>
 
-      {/* Students List */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-            <FiLoader className="text-4xl animate-spin text-blue-600 mb-4" />
-            <p className="font-medium">Loading student directory...</p>
-          </div>
-        ) : (
+      {/* Student Table */}
+      {isLoading ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex justify-center">
+          <FiLoader className="animate-spin text-3xl text-blue-600" />
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-xs font-bold border-b border-slate-200">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-8 py-5">Student Info</th>
-                  <th className="px-8 py-5">Roll No</th>
-                  <th className="px-8 py-5">Class/Dept</th>
-                  <th className="px-8 py-5">Status</th>
-                  <th className="px-8 py-5 text-right">Actions</th>
+                  {['Student ID', 'GR Number', 'Student Name', 'Board', 'Class', 'Division', 'Parent Mobile', 'Status', 'Actions'].map(
+                    (head) => (
+                      <th key={head} className="py-3.5 px-6 text-xs font-bold uppercase tracking-wider text-gray-500">
+                        {head}
+                      </th>
+                    )
+                  )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredStudents.map((s) => (
-                  <tr key={s.uid} className="group transition-colors hover:bg-blue-50/50">
-                    <td className="px-8 py-5">
-                      <div className="flex items-center gap-4">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-lg">
-                          {s.name.charAt(0).toUpperCase()}
-                        </div>
+              <tbody className="divide-y divide-gray-100">
+                {filteredRows.map((student) => (
+                  <tr key={student.id} className="hover:bg-blue-50/40 transition-colors">
+                    <td className="py-3.5 px-6 font-mono text-sm text-slate-700">{student.studentId}</td>
+                    <td className="py-3.5 px-6 font-semibold text-slate-800">{student.grNumber}</td>
+                    <td className="py-3.5 px-6">
+                      <div className="flex items-center gap-3">
+                        <StudentAvatar student={student} size="sm" />
                         <div>
-                          <div className="font-semibold text-slate-900 text-base">{s.name}</div>
-                          <div className="text-slate-500 flex items-center gap-1.5 mt-0.5">
-                            <FiMail className="text-xs" />
-                            {s.email}
-                          </div>
+                          <div className="font-bold text-slate-900">{fullName(student)}</div>
+                          <div className="text-xs text-slate-500">{student.parentEmail || 'No parent email'}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5">
-                      <div className="font-mono font-medium text-slate-700 bg-slate-50 px-3 py-1 rounded inline-block border border-slate-200">{s.roll_no}</div>
+                    <td className="py-3.5 px-6 text-slate-600">{student.currentRecord?.boardName || '-'}</td>
+                    <td className="py-3.5 px-6 font-semibold text-slate-800">{student.currentRecord?.className || '-'}</td>
+                    <td className="py-3.5 px-6 text-slate-600">{student.currentRecord?.division || '-'}</td>
+                    <td className="py-3.5 px-6 text-slate-600">{student.parentMobile}</td>
+                    <td className="py-3.5 px-6">
+                      <StudentStatusBadge status={student.status} />
                     </td>
-                    <td className="px-8 py-5">
-                      <div className="font-bold text-slate-800">{s.class_name}</div>
-                      <div className="text-slate-500 text-xs font-medium uppercase mt-1">{s.department_name}</div>
-                    </td>
-                    <td className="px-8 py-5">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${s.status === 'active'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-slate-100 text-slate-500'
-                          }`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                        {s.status}
-                      </span>
-                    </td>
-                    <td className="px-8 py-5 text-right">
-                      <div className="flex items-center justify-end gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => openView(s)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="View Profile">
-                          <FiEye className="text-lg" />
+                    <td className="py-3.5 px-6">
+                      <div className="flex items-center gap-1">
+                        <button
+                          title="View Profile"
+                          onClick={() => { setSelectedStudent(student); setActiveModal('view'); }}
+                          className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                        >
+                          <FiEye />
                         </button>
-                        <button onClick={() => openEdit(s)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all" title="Edit">
-                          <FiEdit2 className="text-lg" />
+                        <button
+                          title="Edit"
+                          onClick={() => openEdit(student)}
+                          className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                        >
+                          <FiEdit2 />
                         </button>
-                        <button onClick={() => handleDelete(s.uid)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Delete">
-                          <FiTrash2 className="text-lg" />
+                        <button
+                          title="View History"
+                          onClick={() => { setSelectedStudent(student); setActiveModal('history'); }}
+                          className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                        >
+                          <FiClock />
+                        </button>
+                        <button
+                          title="Delete"
+                          onClick={() => handleDelete(student)}
+                          className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                        >
+                          <FiTrash2 />
                         </button>
                       </div>
                     </td>
                   </tr>
                 ))}
-                {filteredStudents.length === 0 && (
+                {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-8 py-16 text-center">
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 mb-4">
-                        <FiUsers className="text-2xl text-slate-400" />
-                      </div>
-                      <p className="text-slate-900 font-semibold mb-1">No students found</p>
-                      <p className="text-slate-500 text-sm">We couldn't find anyone matching your search criteria.</p>
+                    <td colSpan={9} className="py-12 text-center text-gray-500">
+                      No students match the selected filters.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
-
-      {/* --- ADD MODAL --- */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => !createdPassword && setIsAddModalOpen(false)}></div>
-          <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 z-10 bg-white/80 backdrop-blur flex items-center justify-between border-b border-slate-100 px-8 py-6">
-              <h2 className="text-xl font-bold text-slate-900">Add New Student</h2>
-              {!createdPassword && (
-                <button onClick={() => setIsAddModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
-                  <FiX className="text-xl" />
-                </button>
-              )}
-            </div>
-
-            <div className="p-8">
-              {createdPassword ? (
-                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-                    <FiCheck className="text-3xl text-emerald-600" />
-                  </div>
-                  <div className="text-center">
-                    <h3 className="mb-2 text-xl font-bold text-slate-900">Account Created!</h3>
-                    <p className="text-sm text-slate-500">Please securely copy these credentials. For security reasons, the password <span className="font-bold text-red-500">cannot be viewed again</span>.</p>
-                  </div>
-
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                    <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Email Address</div>
-                        <div className="mt-1 font-medium text-slate-900">{formData.email}</div>
-                      </div>
-                      <button type="button" onClick={() => copyToClipboard(formData.email)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                        <FiCopy className="text-lg" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Roll No</div>
-                        <div className="mt-1 font-medium text-slate-900">{formData.roll_no}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between px-5 py-4 bg-amber-50/50">
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wider text-amber-700">Password</div>
-                        <div className="mt-1 font-mono font-bold text-amber-900 tracking-wider text-lg">{createdPassword}</div>
-                      </div>
-                      <button type="button" onClick={() => copyToClipboard(createdPassword)} className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors">
-                        <FiCopy className="text-lg" />
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-              ) : (
-                <form onSubmit={handleAddSubmit} className="space-y-4">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Full Name</label>
-                    <div className="relative">
-                      <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" placeholder="e.g. John Doe" />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Roll Number</label>
-                      <input required type="text" value={formData.roll_no} onChange={e => setFormData({ ...formData, roll_no: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" placeholder="e.g. 23CS101" />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Department</label>
-                      <select required value={formData.department_id} onChange={e => {
-                        const dept = departments.find(d => d.id === e.target.value);
-                        setFormData({ ...formData, department_id: e.target.value, department_name: dept?.name || '', class_id: '', class_name: '' });
-                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none">
-                        <option value="" disabled>Select Dept</option>
-                        {departments.map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
-                      <select required value={formData.class_id} onChange={e => {
-                        const c = allClasses.find(cls => cls.id === e.target.value);
-                        setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
-                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
-                        <option value="" disabled>Select Class</option>
-                        {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
-                      <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
-                        {formData.batch_name || 'No batch found for roll no'}
-                      </div>
-                    </div>
-                  </div>
-
-
-
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Email Address</label>
-                    <div className="relative">
-                      <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input required type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" placeholder="student@college.edu" />
-                    </div>
-                  </div>
-
-                  <div className="mt-8 flex gap-3 pt-4 border-t border-slate-100">
-                    <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
-                    <button type="submit" disabled={isSubmitting} className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-70 disabled:cursor-not-allowed">
-                      {isSubmitting ? <FiLoader className="animate-spin text-lg" /> : 'Create Account'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div >
-        </div >
-      )
-      }
-
-      {/* --- EDIT MODAL --- */}
-      {
-        isEditModalOpen && selectedStudent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsEditModalOpen(false)}></div>
-            <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
-              <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6">
-                <h2 className="text-xl font-bold text-slate-900">Edit Student Profile</h2>
-                <button onClick={() => setIsEditModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
-                  <FiX className="text-xl" />
-                </button>
-              </div>
-
-              <div className="p-8 max-h-[75vh] overflow-y-auto">
-                <form onSubmit={handleEditSubmit} className="space-y-4">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Full Name</label>
-                    <div className="relative">
-                      <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Roll Number</label>
-                      <input required type="text" value={formData.roll_no} onChange={e => setFormData({ ...formData, roll_no: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Department</label>
-                      <select required value={formData.department_id} onChange={e => {
-                        const dept = departments.find(d => d.id === e.target.value);
-                        setFormData({ ...formData, department_id: e.target.value, department_name: dept?.name || '', class_id: '', class_name: '' });
-                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none">
-                        <option value="" disabled>Select Dept</option>
-                        {departments.map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
-                      <select required value={formData.class_id} onChange={e => {
-                        const c = allClasses.find(cls => cls.id === e.target.value);
-                        setFormData({ ...formData, class_id: e.target.value, class_name: c?.name || '', batch_id: '', batch_name: '' });
-                      }} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none pointer-events-auto" disabled={!formData.department_id}>
-                        <option value="" disabled>Select Class</option>
-                        {allClasses.filter(c => c.department_id === formData.department_id).map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Batch (Auto-calculated)</label>
-                      <div className="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 px-4 text-sm font-bold text-blue-600 shadow-inner min-h-[46px] flex items-center">
-                        {formData.batch_name || 'No batch found for roll no'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Status</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button type="button" onClick={() => setFormData({ ...formData, status: 'active' })} className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${formData.status === 'active' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-2 ring-emerald-500/20' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                        <div className={`w-2 h-2 rounded-full ${formData.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                        Active
-                      </button>
-                      <button type="button" onClick={() => setFormData({ ...formData, status: 'inactive' })} className={`py-3 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${formData.status === 'inactive' ? 'bg-slate-100 border-slate-300 text-slate-700 ring-2 ring-slate-500/20' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                        <div className={`w-2 h-2 rounded-full ${formData.status === 'inactive' ? 'bg-slate-500' : 'bg-slate-300'}`}></div>
-                        Inactive
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-8 flex gap-3 pt-4 border-t border-slate-100">
-                    <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
-                    <button type="submit" disabled={isSubmitting} className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-70 disabled:cursor-not-allowed">
-                      {isSubmitting ? <FiLoader className="animate-spin text-lg" /> : 'Save Changes'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )
-      }
-
-{/* --- VIEW MODAL --- */ }
-{
-  isViewModalOpen && selectedStudent && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsViewModalOpen(false)}></div>
-      <div className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
-        <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6 bg-slate-50">
-          <h2 className="text-xl font-bold text-slate-900">Student Area</h2>
-          <button onClick={() => setIsViewModalOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors">
-            <FiX className="text-xl" />
-          </button>
         </div>
+      )}
 
-        <div className="p-8 overflow-y-auto space-y-8">
-
-          {/* Profile Card */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 p-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-100 text-blue-700 shadow-inner">
-              <span className="text-3xl font-bold">{selectedStudent.name.charAt(0).toUpperCase()}</span>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-2xl font-bold text-slate-900">{selectedStudent.name}</h3>
-              <div className="flex flex-wrap items-center gap-4 mt-2">
-                <span className="flex items-center gap-1.5 text-slate-500 font-medium bg-slate-100 px-3 py-1 rounded-md text-sm">
-                  <FiBriefcase /> {selectedStudent.roll_no}
-                </span>
-                <span className="flex items-center gap-1.5 text-slate-500 font-medium bg-slate-100 px-3 py-1 rounded-md text-sm">
-                  <FiBook /> {selectedStudent.class_name}
-                </span>
-                {selectedStudent.batch_name && (
-                  <span className="flex items-center gap-1.5 text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-md text-sm border border-blue-100">
-                    <FiUsers /> {selectedStudent.batch_name}
-                  </span>
-                )}
-                <span className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-bold uppercase tracking-wider ${selectedStudent.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                  }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${selectedStudent.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                  {selectedStudent.status}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Attendance Dashboard */}
-          <div>
-            <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <FiClock className="text-blue-500" /> Attendance Overview
-            </h3>
-
-            {loadingAttendance ? (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-400 bg-slate-50 rounded-2xl border border-slate-200">
-                <FiLoader className="text-3xl animate-spin text-blue-600 mb-3" />
-                <p className="font-medium">Loading attendance data...</p>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                  {(() => {
-                    const total = studentAttendance.length;
-                    const present = studentAttendance.filter(a => a.status === 'present').length;
-                    const absent = total - present;
-                    const percent = total > 0 ? Math.round((present / total) * 100) : 0;
-                    return (
-                      <>
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center">
-                          <span className="text-slate-500 font-bold text-xs uppercase tracking-wider mb-1">Total Classes</span>
-                          <span className="text-3xl font-black text-slate-800">{total}</span>
-                        </div>
-                        <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center text-center shadow-sm shadow-emerald-100/50">
-                          <span className="text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">Present</span>
-                          <span className="text-3xl font-black text-emerald-700">{present}</span>
-                        </div>
-                        <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex flex-col items-center justify-center text-center shadow-sm shadow-red-100/50">
-                          <span className="text-red-500 font-bold text-xs uppercase tracking-wider mb-1">Absent</span>
-                          <span className="text-3xl font-black text-red-700">{absent}</span>
-                        </div>
-                        <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex flex-col items-center justify-center text-center shadow-sm shadow-blue-100/50">
-                          <span className="text-blue-500 font-bold text-xs uppercase tracking-wider mb-1">Attendance Rate</span>
-                          <span className="text-3xl font-black text-blue-700">{percent}%</span>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {studentAttendance.length > 0 ? (
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                    <table className="w-full text-left text-sm whitespace-nowrap">
-                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-xs font-bold border-b border-slate-200">
-                        <tr>
-                          <th className="px-6 py-4">Date</th>
-                          <th className="px-6 py-4">Subject</th>
-                          <th className="px-6 py-4">Slot Time</th>
-                          <th className="px-6 py-4 text-right">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {studentAttendance.slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => (
-                          <tr key={record.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-4 font-medium text-slate-700">{record.date}</td>
-                            <td className="px-6 py-4">
-                              <span className="inline-flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded text-slate-600 font-medium">
-                                <FiBook className="text-slate-400" /> {record.subject_name}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="text-slate-500 text-sm">{record.slot_time}</div>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <span className={`inline-flex px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${record.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                {record.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 font-medium">
-                    No attendance records found yet.
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-        </div>
-      </div>
+      {/* Modals */}
+      {(activeModal === 'add' || activeModal === 'edit') && (
+        <StudentFormModal
+          mode={activeModal}
+          form={form}
+          setForm={setForm}
+          academicYears={academicYears}
+          boards={filteredBoards}
+          classes={filteredClassesForForm}
+          onClose={() => setActiveModal(null)}
+          onSubmit={saveStudent}
+          onMarkPassedOut={
+            activeModal === 'edit' && selectedStudent
+              ? () => {
+                  handleMarkPassedOut(selectedStudent);
+                  setActiveModal(null);
+                }
+              : undefined
+          }
+          isSubmitting={isSubmitting}
+        />
+      )}
+      {activeModal === 'view' && selectedStudent && (
+        <StudentProfileModal student={selectedStudent} onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === 'history' && selectedStudent && (
+        <StudentHistoryModal student={selectedStudent} onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === 'import' && (
+        <StudentImportModal
+          rows={importRows}
+          onFile={parseImportFile}
+          onImport={handleImportValid}
+          onTemplate={downloadTemplate}
+          onClose={() => { setActiveModal(null); setImportRows([]); }}
+          isSubmitting={isSubmitting}
+        />
+      )}
+      {activeModal === 'promotion' && (
+        <StudentPromotionModal
+          promotion={promotion}
+          setPromotion={setPromotion}
+          academicYears={academicYears}
+          boards={boards}
+          classes={promotionClasses}
+          allClasses={classes}
+          eligibleStudents={promotionStudents}
+          onPromote={handlePromote}
+          onMarkPassedOut={handleMarkPassedOutFromPromotion}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
     </div>
-  )
-}
-    </div >
   );
 }
-

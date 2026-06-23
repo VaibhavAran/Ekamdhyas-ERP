@@ -12,8 +12,8 @@ import { db } from '../firebase'
 export function DashboardPage() {
   const [studentCount, setStudentCount] = useState<number | null>(null)
   const [facultyCount, setFacultyCount] = useState<number | null>(null)
-  const [departmentCount, setDepartmentCount] = useState<number | null>(null)
   const [classCount, setClassCount] = useState<number | null>(null)
+  const [departmentCount, setDepartmentCount] = useState<number | null>(null)
   const [weeklyAttendanceData, setWeeklyAttendanceData] = useState<{ day: string; value: number }[]>([])
   const [recentActivities, setRecentActivities] = useState<{ text: string; time: number }[]>([])
   const [presentToday, setPresentToday] = useState<number | null>(null)

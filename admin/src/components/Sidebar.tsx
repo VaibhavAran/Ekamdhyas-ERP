@@ -18,7 +18,7 @@ const navigationItems = [
   { label: 'Dashboard', to: '/dashboard', icon: AiOutlineHome },
   { label: 'Academic Year', to: '/academic-years', icon: AiOutlineCalendar },
   { label: 'Board Management', to: '/boards', icon: AiOutlineAppstore },
-  { label: 'Depts & Classes', to: '/departments-classes', icon: AiOutlineAppstore },
+  { label: 'Classes', to: '/classes-branches', icon: AiOutlineAppstore },
   { label: 'Students', to: '/students', icon: AiOutlineUser },
   { label: 'Faculty', to: '/faculty', icon: AiOutlineTeam },
   { label: 'Subjects', to: '/subjects', icon: AiOutlineBook },

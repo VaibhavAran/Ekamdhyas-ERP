@@ -26,7 +26,7 @@ export function LoginPage() {
     try {
       // 1. Check controllers collection first (new system)
       let q = query(
-        collection(db, 'controllers'), 
+        collection(db, 'controllers'),
         where('username', '==', username.trim().toLowerCase())
       );
       let querySnapshot = await getDocs(q);
@@ -36,7 +36,7 @@ export function LoginPage() {
       // 2. If not found in controllers, check admins collection (backward compatibility)
       if (querySnapshot.empty) {
         q = query(
-          collection(db, 'admins'), 
+          collection(db, 'admins'),
           where('username', '==', username.trim().toLowerCase())
         );
         querySnapshot = await getDocs(q);
@@ -50,7 +50,7 @@ export function LoginPage() {
       }
 
       userData = querySnapshot.docs[0].data();
-      
+
       if (userData.password === password) {
         writeAuthFlag(true)
         localStorage.setItem('controller-username', userData.username);

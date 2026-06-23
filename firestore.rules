@@ -28,8 +28,18 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
-    // Students
+    // Students (master profiles - permanent records)
     match /students/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Student Academic Records (yearly academic history per student)
+    match /studentAcademicRecords/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Student Documents (future: certificates, ID cards, etc.)
+    match /studentDocuments/{document=**} {
       allow read, write: if signedIn();
     }
 
@@ -43,8 +53,8 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
-    // Batches
-    match /batches/{document=**} {
+    // Branches
+    match /branches/{document=**} {
       allow read, write: if signedIn();
     }
 
