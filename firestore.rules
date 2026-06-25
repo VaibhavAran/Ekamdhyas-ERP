@@ -93,6 +93,16 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
+    // Batches
+    match /batches/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Notices
+    match /notices/{document=**} {
+      allow read, write: if signedIn();
+    }
+
 
     /* ==========================
        SUBSTITUTE REQUESTS

@@ -2,7 +2,6 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { AttendanceRecordsPage } from './pages/AttendanceRecordsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
 import { NotificationsPage } from './pages/NotificationsPage'
@@ -13,6 +12,8 @@ import { DepartmentsClassesPage } from './pages/DepartmentsClassesPage'
 import { AcademicYearsPage } from './pages/AcademicYearsPage'
 import { BoardsPage } from './pages/BoardsPage'
 import { TeachersPage } from './pages/TeachersPage'
+import { AttendanceAnalyticsPage } from './pages/AttendanceAnalyticsPage'
+import { NoticeManagementPage } from './pages/NoticeManagementPage'
 
 function App() {
   return (
@@ -33,7 +34,8 @@ function App() {
           <Route path="students" element={<StudentsPage />} />
           <Route path="teachers" element={<TeachersPage />} />
           <Route path="subjects" element={<SubjectsPage />} />
-          <Route path="attendance-records" element={<AttendanceRecordsPage />} />
+          <Route path="attendance-analytics" element={<AttendanceAnalyticsPage />} />
+          <Route path="notices" element={<NoticeManagementPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

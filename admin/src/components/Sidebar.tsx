@@ -4,10 +4,11 @@ import {
   AiOutlineUser,
   AiOutlineBook,
   AiOutlineCalendar,
-  AiOutlineFileText,
   AiOutlineSetting,
   AiOutlineLogout,
   AiOutlineAppstore,
+  AiOutlineBarChart,
+  AiOutlineBell,
   AiOutlineClose,
   AiOutlineSolution,
 } from 'react-icons/ai'
@@ -21,7 +22,8 @@ const navigationItems = [
   { label: 'Students', to: '/students', icon: AiOutlineUser },
   { label: 'Teachers', to: '/teachers', icon: AiOutlineSolution },
   { label: 'Subjects', to: '/subjects', icon: AiOutlineBook },
-  { label: 'Attendance Records', to: '/attendance-records', icon: AiOutlineFileText },
+  { label: 'Attendance Analytics', to: '/attendance-analytics', icon: AiOutlineBarChart },
+  { label: 'Notices', to: '/notices', icon: AiOutlineBell },
   { label: 'Settings', to: '/settings', icon: AiOutlineSetting },
 ]
 
