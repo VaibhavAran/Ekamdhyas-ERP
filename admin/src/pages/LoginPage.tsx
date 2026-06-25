@@ -31,7 +31,6 @@ export function LoginPage() {
       );
       let querySnapshot = await getDocs(q);
       let userData: any = null;
-      let userType = 'controller';
 
       // 2. If not found in controllers, check admins collection (backward compatibility)
       if (querySnapshot.empty) {
@@ -40,7 +39,6 @@ export function LoginPage() {
           where('username', '==', username.trim().toLowerCase())
         );
         querySnapshot = await getDocs(q);
-        userType = 'admin';
       }
 
       if (querySnapshot.empty) {

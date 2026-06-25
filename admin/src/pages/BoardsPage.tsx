@@ -126,7 +126,7 @@ export function BoardsPage() {
       } else {
         const newBoardData = { name: form.name, status: form.status, createdAt: serverTimestamp() };
         const docRef = await addDoc(collection(db, 'boards'), newBoardData);
-        const newBoard: Board = { id: docRef.id, name: newBoardData.name, status: newBoardData.status };
+        const newBoard: Board = { id: docRef.id, name: newBoardData.name, status: newBoardData.status, createdAt: newBoardData.createdAt };
         setBoards(prev => [...prev, newBoard]);
         showToast('Board added successfully!', 'success');
       }

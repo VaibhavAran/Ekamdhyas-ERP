@@ -6,13 +6,22 @@ import {
 import { db } from '../firebase';
 import {
   FiPlus, FiSearch, FiEdit2, FiTrash2, FiX, FiCheck, FiEye,
-  FiAlertCircle, FiUsers, FiBook, FiAward, FiUser,
+  FiAlertCircle, FiUsers, FiBook, FiAward, FiUser, FiLoader,
 } from 'react-icons/fi';
 import type { ClassModel, Board } from '../types/board';
 
-interface Faculty {
+interface TeacherDoc {
   id: string;
-  name: string;
+  employeeId: string;
+  personalDetails: {
+    firstName: string;
+    middleName: string;
+    lastName: string;
+    email: string;
+    mobileNumber: string;
+  };
+  assignedClasses: string[];
+  status: 'active' | 'inactive';
 }
 
 interface Student {
@@ -53,7 +62,7 @@ const emptyForm: ClassForm = {
 export function DepartmentsClassesPage() {
   const [classes, setClasses] = useState<ClassModel[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
-  const [faculty, setFaculty] = useState<Faculty[]>([]);
+  const [teachers, setTeachers] = useState<TeacherDoc[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -71,20 +80,26 @@ export function DepartmentsClassesPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const getTeacherFullName = (t: TeacherDoc) => {
+    const { firstName, middleName, lastName } = t.personalDetails;
+    return [firstName, middleName, lastName].filter(Boolean).join(' ');
+  };
+
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [classSnap, boardSnap, facultySnap, studentSnap] = await Promise.all([
+      const [classSnap, boardSnap, teacherSnap, studentSnap] = await Promise.all([
         getDocs(collection(db, 'classes')),
         getDocs(collection(db, 'boards')),
-        getDocs(collection(db, 'faculty')),
+        getDocs(collection(db, 'teachers')),
         getDocs(query(collection(db, 'students'), where('role', '==', 'student'))),
       ]);
 
       const boardsList = boardSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Board[];
       setBoards(boardsList);
 
-      setFaculty(facultySnap.docs.map(d => ({ id: d.id, name: d.data().name } as Faculty)));
+      const teachersList = teacherSnap.docs.map(d => ({ id: d.id, ...d.data() } as TeacherDoc));
+      setTeachers(teachersList);
 
       const studentsList = studentSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Student));
       setStudents(studentsList);
@@ -93,6 +108,7 @@ export function DepartmentsClassesPage() {
         const data = d.data();
         const boardId = data.board_id || '';
         const teacherId = data.class_teacher_id || '';
+        const matchedTeacher = teachersList.find(f => f.id === teacherId);
         return {
           id: d.id,
           name: data.name || '',
@@ -100,7 +116,7 @@ export function DepartmentsClassesPage() {
           board_name: data.board_name || boardsList.find(b => b.id === boardId)?.name || '',
           division: data.division || '',
           class_teacher_id: teacherId,
-          class_teacher_name: data.class_teacher_name || facultySnap.docs.find(f => f.id === teacherId)?.data().name || '',
+          class_teacher_name: data.class_teacher_name || (matchedTeacher ? getTeacherFullName(matchedTeacher) : ''),
           capacity: data.capacity || 0,
           status: data.status || 'active',
           created_at: data.created_at,
@@ -124,6 +140,12 @@ export function DepartmentsClassesPage() {
     return students.filter(s => s.class_id === classId).length;
   };
 
+  const getTeacherCount = (classId: string) => {
+    return teachers.filter(t =>
+      t.status === 'active' && t.assignedClasses && t.assignedClasses.includes(classId)
+    ).length;
+  };
+
   const filteredClasses = useMemo(() => {
     return classes.filter(c => {
       const matchSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -135,12 +157,15 @@ export function DepartmentsClassesPage() {
 
   const getBoardName = (id: string) => boards.find(b => b.id === id)?.name || 'Unknown';
 
+  const activeTeachers = useMemo(() => teachers.filter(t => t.status === 'active'), [teachers]);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || !form.board_id) return;
     try {
       const boardName = boards.find(b => b.id === form.board_id)?.name || form.board_name;
-      const teacherName = faculty.find(f => f.id === form.class_teacher_id)?.name || form.class_teacher_name;
+      const matchedTeacher = teachers.find(f => f.id === form.class_teacher_id);
+      const teacherName = matchedTeacher ? getTeacherFullName(matchedTeacher) : form.class_teacher_name;
       const capacityNum = form.capacity ? parseInt(form.capacity, 10) : 0;
 
       const payload = {
@@ -265,7 +290,7 @@ export function DepartmentsClassesPage() {
       {/* Table */}
       {isLoading ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <FiLoader className="animate-spin text-3xl text-blue-600" />
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -277,6 +302,7 @@ export function DepartmentsClassesPage() {
                   <th className="py-4 px-6 font-semibold text-gray-700">Class Name</th>
                   <th className="py-4 px-6 font-semibold text-gray-700">Division</th>
                   <th className="py-4 px-6 font-semibold text-gray-700">Class Teacher</th>
+                  <th className="py-4 px-6 font-semibold text-gray-700 text-center">Teachers</th>
                   <th className="py-4 px-6 font-semibold text-gray-700 text-center">Capacity</th>
                   <th className="py-4 px-6 font-semibold text-gray-700 text-center">Students</th>
                   <th className="py-4 px-6 font-semibold text-gray-700 text-center">Status</th>
@@ -314,6 +340,12 @@ export function DepartmentsClassesPage() {
                         ) : (
                           <span className="text-gray-400 text-sm">Not assigned</span>
                         )}
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100">
+                          <FiUser size={14} className="text-indigo-500" />
+                          {getTeacherCount(c.id)}
+                        </span>
                       </td>
                       <td className="py-4 px-6 text-center">
                         <span className="text-sm font-medium text-gray-700">
@@ -358,7 +390,7 @@ export function DepartmentsClassesPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-gray-500">
+                    <td colSpan={9} className="py-12 text-center text-gray-500">
                       {classes.length === 0
                         ? 'No classes found. Add one to get started.'
                         : 'No classes match your filter.'}
@@ -450,14 +482,14 @@ export function DepartmentsClassesPage() {
                   <select
                     value={form.class_teacher_id}
                     onChange={(e) => {
-                      const teacher = faculty.find(f => f.id === e.target.value);
-                      setForm({ ...form, class_teacher_id: e.target.value, class_teacher_name: teacher?.name || '' });
+                      const teacher = activeTeachers.find(f => f.id === e.target.value);
+                      setForm({ ...form, class_teacher_id: e.target.value, class_teacher_name: teacher ? getTeacherFullName(teacher) : '' });
                     }}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 appearance-none"
                   >
                     <option value="">Select Class Teacher</option>
-                    {faculty.map(f => (
-                      <option key={f.id} value={f.id}>{f.name}</option>
+                    {activeTeachers.map(f => (
+                      <option key={f.id} value={f.id}>{getTeacherFullName(f)} ({f.employeeId})</option>
                     ))}
                   </select>
                 </div>

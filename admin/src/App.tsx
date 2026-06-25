@@ -4,16 +4,15 @@ import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AttendanceRecordsPage } from './pages/AttendanceRecordsPage'
 import { DashboardPage } from './pages/DashboardPage'
-import { FacultyPage } from './pages/FacultyPage'
 import { LoginPage } from './pages/LoginPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StudentsPage } from './pages/StudentsPage'
 import { SubjectsPage } from './pages/SubjectsPage'
-import { TimetablePage } from './pages/TimetablePage'
 import { DepartmentsClassesPage } from './pages/DepartmentsClassesPage'
 import { AcademicYearsPage } from './pages/AcademicYearsPage'
 import { BoardsPage } from './pages/BoardsPage'
+import { TeachersPage } from './pages/TeachersPage'
 
 function App() {
   return (
@@ -32,11 +31,9 @@ function App() {
           <Route path="academic-years" element={<AcademicYearsPage />} />
           <Route path="boards" element={<BoardsPage />} />
           <Route path="students" element={<StudentsPage />} />
-          <Route path="faculty" element={<FacultyPage />} />
+          <Route path="teachers" element={<TeachersPage />} />
           <Route path="subjects" element={<SubjectsPage />} />
-          <Route path="timetable" element={<TimetablePage />} />
           <Route path="attendance-records" element={<AttendanceRecordsPage />} />
-          {/* Reports page removed */}
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

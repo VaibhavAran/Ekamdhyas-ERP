@@ -91,12 +91,11 @@ export function DashboardPage() {
 
         // (Today's active classes removed)
 
-        // Recent activity from students, faculty, timetable, attendance_sessions
-        const [studSnap, facSnap, sessSnap, ttSnapRecent] = await Promise.all([
+        // Recent activity from students, faculty, attendance_sessions
+        const [studSnap, facSnap, sessSnap] = await Promise.all([
           getDocs(query(collection(db, 'students'), orderBy('created_at', 'desc'), limit(5))),
           getDocs(query(collection(db, 'faculty'), orderBy('created_at', 'desc'), limit(5))),
           getDocs(query(collection(db, 'attendance_sessions'), orderBy('completed_at', 'desc'), limit(5))),
-          getDocs(query(collection(db, 'timetable'), orderBy('created_at', 'desc'), limit(5))),
         ])
 
         const activities: { text: string; time: number }[] = []
@@ -118,12 +117,6 @@ export function DashboardPage() {
           const actor = data.teacher_name || 'A teacher'
           const ts = (data.completed_at && data.completed_at.toDate) ? data.completed_at.toDate().getTime() : Date.now()
           activities.push({ text: `${actor} completed attendance`, time: ts })
-        })
-
-        ttSnapRecent.docs.forEach(d => {
-          const data = d.data() as any
-          const ts = (data.created_at && data.created_at.toDate) ? data.created_at.toDate().getTime() : Date.now()
-          activities.push({ text: `Timetable updated: ${data.class_name || 'Class'}`, time: ts })
         })
 
         activities.sort((a, b) => b.time - a.time)

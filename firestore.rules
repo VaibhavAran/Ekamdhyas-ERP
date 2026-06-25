@@ -23,8 +23,13 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
-    // Faculty / Teachers
+    // Faculty / Teachers (legacy)
     match /faculty/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Teachers (new comprehensive module)
+    match /teachers/{document=**} {
       allow read, write: if signedIn();
     }
 

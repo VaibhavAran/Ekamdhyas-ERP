@@ -2,15 +2,14 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   AiOutlineHome,
   AiOutlineUser,
-  AiOutlineTeam,
   AiOutlineBook,
   AiOutlineCalendar,
   AiOutlineFileText,
   AiOutlineSetting,
   AiOutlineLogout,
   AiOutlineAppstore,
-  AiOutlineSchedule,
   AiOutlineClose,
+  AiOutlineSolution,
 } from 'react-icons/ai'
 import { writeAuthFlag } from '../utils/authStorage'
 
@@ -20,9 +19,8 @@ const navigationItems = [
   { label: 'Board Management', to: '/boards', icon: AiOutlineAppstore },
   { label: 'Classes', to: '/classes-branches', icon: AiOutlineAppstore },
   { label: 'Students', to: '/students', icon: AiOutlineUser },
-  { label: 'Faculty', to: '/faculty', icon: AiOutlineTeam },
+  { label: 'Teachers', to: '/teachers', icon: AiOutlineSolution },
   { label: 'Subjects', to: '/subjects', icon: AiOutlineBook },
-  { label: 'Timetable', to: '/timetable', icon: AiOutlineSchedule },
   { label: 'Attendance Records', to: '/attendance-records', icon: AiOutlineFileText },
   { label: 'Settings', to: '/settings', icon: AiOutlineSetting },
 ]
