@@ -120,6 +120,16 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
+    // Assignments
+    match /assignments/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // Assignment Submissions
+    match /assignmentSubmissions/{document=**} {
+      allow read, write: if signedIn();
+    }
+
     // Default deny for unknown collections
     match /{document=**} {
       allow read, write: if false;

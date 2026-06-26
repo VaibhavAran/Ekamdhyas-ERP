@@ -11,6 +11,9 @@ import {
   AiOutlineBell,
   AiOutlineClose,
   AiOutlineSolution,
+  AiOutlineFileText,
+  AiOutlinePieChart,
+  AiOutlineTeam,
 } from 'react-icons/ai'
 import { writeAuthFlag } from '../utils/authStorage'
 
@@ -22,9 +25,12 @@ const navigationItems = [
   { label: 'Students', to: '/students', icon: AiOutlineUser },
   { label: 'Teachers', to: '/teachers', icon: AiOutlineSolution },
   { label: 'Subjects', to: '/subjects', icon: AiOutlineBook },
+  { label: 'Assignments', to: '/assignments', icon: AiOutlineFileText },
   { label: 'Attendance Analytics', to: '/attendance-analytics', icon: AiOutlineBarChart },
+  { label: 'Reports & Analytics', to: '/reports-analytics', icon: AiOutlinePieChart },
   { label: 'Notices', to: '/notices', icon: AiOutlineBell },
   { label: 'Settings', to: '/settings', icon: AiOutlineSetting },
+  { label: 'User Management', to: '/user-management', icon: AiOutlineTeam },
 ]
 
 interface SidebarProps {

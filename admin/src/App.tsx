@@ -14,6 +14,9 @@ import { BoardsPage } from './pages/BoardsPage'
 import { TeachersPage } from './pages/TeachersPage'
 import { AttendanceAnalyticsPage } from './pages/AttendanceAnalyticsPage'
 import { NoticeManagementPage } from './pages/NoticeManagementPage'
+import { AssignmentsPage } from './pages/AssignmentsPage'
+import { ReportsAnalyticsPage } from './pages/ReportsAnalyticsPage'
+import { UserManagementPage } from './pages/UserManagementPage'
 
 function App() {
   return (
@@ -35,9 +38,12 @@ function App() {
           <Route path="teachers" element={<TeachersPage />} />
           <Route path="subjects" element={<SubjectsPage />} />
           <Route path="attendance-analytics" element={<AttendanceAnalyticsPage />} />
+          <Route path="assignments" element={<AssignmentsPage />} />
+          <Route path="reports-analytics" element={<ReportsAnalyticsPage />} />
           <Route path="notices" element={<NoticeManagementPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="user-management" element={<UserManagementPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
